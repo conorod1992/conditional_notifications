@@ -9,7 +9,7 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN, PANEL_PATH, PANEL_URL, PLATFORMS
+from .const import DOMAIN, PANEL_PATH, PANEL_URL, PLATFORMS, VERSION
 from .llm import async_register_llm_api
 from .manager import NotificationManager
 from .services import async_register_services, async_unregister_services
@@ -45,7 +45,7 @@ async def async_setup_entry(
             config={
                 "_panel_custom": {
                     "name": "conditional-notifications-panel",
-                    "module_url": PANEL_URL,
+                    "module_url": f"{PANEL_URL}?v={VERSION}",
                     "embed_iframe": False,
                     "trust_external": False,
                     "handle_safe_area": True,

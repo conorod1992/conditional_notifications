@@ -31,6 +31,7 @@ def merge_delivery(defaults: dict[str, Any], override: dict[str, Any]) -> dict[s
         return defaults
     return {
         "persistent_notification": bool(override.get("persistent_notification")),
+        "notify_entities": list(override.get("notify_entities", [])),
         "notify_services": list(override.get("notify_services", [])),
     }
 
@@ -60,6 +61,18 @@ async def async_deliver(
             results.append(
                 {"channel": "persistent_notification", "success": False, "error": str(err)[:300]}
             )
+    for entity_id in delivery.get("notify_entities", []):
+        try:
+            await hass.services.async_call(
+                "notify",
+                "send_message",
+                {"title": title, "message": message},
+                blocking=True,
+                target={"entity_id": entity_id},
+            )
+            results.append({"channel": entity_id, "success": True})
+        except Exception as err:
+            results.append({"channel": entity_id, "success": False, "error": str(err)[:300]})
     for service in delivery.get("notify_services", []):
         try:
             domain, service_name = service.split(".", 1) if "." in service else ("notify", service)

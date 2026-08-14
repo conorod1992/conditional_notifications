@@ -89,3 +89,42 @@ test("Home Assistant updates do not reset an initialized entity picker", () => {
   panel.bindHass.call(context);
   assert.equal(picker.value, "light.office");
 });
+
+test("advanced section and editor scroll survive structural renders", () => {
+  const oldBody = {scrollTop:742};
+  const context = {
+    advancedOpen:true,
+    editorScrollTop:0,
+    shadowRoot:{querySelector:selector => selector === ".editor-body" ? oldBody : null},
+  };
+  panel.captureEditorState.call(context);
+  assert.equal(context.editorScrollTop, 742);
+
+  const newBody = {scrollTop:0};
+  const details = {open:false};
+  context.shadowRoot.querySelector = selector => selector === ".editor-body" ? newBody : details;
+  panel.restoreEditorState.call(context);
+  assert.equal(newBody.scrollTop, 742);
+  assert.equal(details.open, true);
+});
+
+test("datetime values are displayed in browser-local time", () => {
+  const value = "2026-08-15T10:30:00Z";
+  const date = new Date(value);
+  const pad = number => String(number).padStart(2, "0");
+  const expected = `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  assert.equal(panel.dateTimeValue(value), expected);
+});
+
+test("custom delivery requires a selected channel", () => {
+  const context = {};
+  const baseDefinition = {
+    name:"Test", triggers:[{type:"state",entity_id:"binary_sensor.door"}],
+    title:"Door", message:"Opened", repeat_policy:"once",
+    delivery:{use_defaults:false,persistent_notification:false,notify_entities:[]},
+  };
+  assert.match(panel.validate.call(context, baseDefinition).delivery, /at least one/);
+  const valid = structuredClone(baseDefinition);
+  valid.delivery.notify_entities = ["notify.phone"];
+  assert.equal(panel.validate.call(context, valid).delivery, undefined);
+});

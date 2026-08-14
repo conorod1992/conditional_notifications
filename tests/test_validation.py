@@ -129,6 +129,23 @@ def test_delivery_rejects_arbitrary_fields():
         validate_definition(base(delivery={"service": "light.turn_on"}))
 
 
+def test_delivery_accepts_only_notify_entities():
+    result = validate_definition(
+        base(
+            delivery={
+                "use_defaults": False,
+                "persistent_notification": False,
+                "notify_entities": ["notify.conors_phone"],
+            }
+        )
+    )
+    assert result["delivery"]["notify_entities"] == ["notify.conors_phone"]
+    with pytest.raises(DefinitionError, match="notify entity IDs"):
+        validate_definition(
+            base(delivery={"use_defaults": False, "notify_entities": ["light.kitchen"]})
+        )
+
+
 def test_definition_and_trigger_reject_arbitrary_action_structures():
     with pytest.raises(DefinitionError, match="unsupported fields"):
         validate_definition(base(action={"service": "lock.unlock"}))

@@ -16,10 +16,14 @@
         "data": {
           "panel_enabled": "Show sidebar panel",
           "persistent_notification": "Use persistent notifications by default",
-          "notify_services": "Default notify services (comma-separated)",
+          "notify_entities": "Default notify entities",
           "history_retention_days": "History retention (days)",
           "history_max_records": "Maximum history records",
           "retain_content": "Retain rendered notification content in history"
+        },
+        "data_description": {
+          "persistent_notification": "Create a notification in Home Assistant's notification panel unless a watch overrides the defaults.",
+          "notify_entities": "Phones, speakers, and other notify entities used unless a watch selects custom delivery."
         }
       }
     }

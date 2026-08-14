@@ -9,6 +9,8 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
     BooleanSelector,
+    EntitySelector,
+    EntitySelectorConfig,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
@@ -45,10 +47,7 @@ class ConditionalNotificationsOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             delivery = dict(options["delivery"])
             delivery["persistent_notification"] = user_input.pop("persistent_notification")
-            services = user_input.pop("notify_services", "")
-            delivery["notify_services"] = [
-                item.strip() for item in services.split(",") if item.strip()
-            ]
+            delivery["notify_entities"] = user_input.pop("notify_entities", [])
             return self.async_create_entry(
                 title="", data={**options, **user_input, "delivery": delivery}
             )
@@ -60,9 +59,9 @@ class ConditionalNotificationsOptionsFlow(config_entries.OptionsFlow):
                     default=options["delivery"].get("persistent_notification", True),
                 ): BooleanSelector(),
                 vol.Optional(
-                    "notify_services",
-                    default=", ".join(options["delivery"].get("notify_services", [])),
-                ): str,
+                    "notify_entities",
+                    default=options["delivery"].get("notify_entities", []),
+                ): EntitySelector(EntitySelectorConfig(domain="notify", multiple=True)),
                 vol.Required(
                     "history_retention_days", default=options["history_retention_days"]
                 ): NumberSelector(

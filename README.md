@@ -184,7 +184,7 @@ The `notification` mapping contains the current structured status. Syntax is val
 
 ## Delivery
 
-The reliable default is an integration-owned Home Assistant persistent notification. A watch may use global defaults or explicitly choose persistent delivery and one or more `notify.*` services. Provider calls are isolated: one failure cannot stop other channels or other watches. Delivery test uses the same rendering/providers but does not alter count or occurrence history.
+The reliable default is an integration-owned Home Assistant persistent notification. Change integration-wide defaults from **Settings → Devices & services → Conditional Notifications → Configure**; the panel also links there from Advanced options. A watch may use those defaults or explicitly choose persistent delivery and one or more searchable `notify.*` entities. Notify entities use Home Assistant's modern `notify.send_message` action. Previously stored legacy `notify.*` service names remain supported for compatibility. Provider calls are isolated: one failure cannot stop other channels or other watches. Delivery test uses the same rendering/providers but does not alter count or occurrence history.
 
 When auto-resolution is enabled, `clear_on_resolve` dismisses only the tagged persistent notification created by this integration. The integration does not claim it can retract an arbitrary delivered phone notification.
 

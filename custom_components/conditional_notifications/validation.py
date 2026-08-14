@@ -240,7 +240,7 @@ def validate_definition(data: dict[str, Any], *, partial: bool = False) -> dict[
     delivery = result.setdefault("delivery", {"use_defaults": True})
     if not isinstance(delivery, dict):
         _error("delivery", "must be an object")
-    allowed = {"use_defaults", "persistent_notification", "notify_services"}
+    allowed = {"use_defaults", "persistent_notification", "notify_entities", "notify_services"}
     if set(delivery) - allowed:
         _error("delivery", "contains unsupported delivery fields")
     if "notify_services" in delivery and not isinstance(delivery["notify_services"], list):
@@ -248,6 +248,11 @@ def validate_definition(data: dict[str, Any], *, partial: bool = False) -> dict[
     for service in delivery.get("notify_services", []):
         if not isinstance(service, str) or ("." in service and not service.startswith("notify.")):
             _error("delivery.notify_services", "may contain only notify service names")
+    if "notify_entities" in delivery and not isinstance(delivery["notify_entities"], list):
+        _error("delivery.notify_entities", "must be a list")
+    for entity_id in delivery.get("notify_entities", []):
+        if not isinstance(entity_id, str) or not entity_id.startswith("notify."):
+            _error("delivery.notify_entities", "may contain only notify entity IDs")
     result.setdefault("enabled", True)
     result.setdefault("match_current_state", False)
     return result
