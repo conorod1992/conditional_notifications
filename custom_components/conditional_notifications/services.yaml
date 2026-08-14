@@ -1,0 +1,99 @@
+create:
+  name: Create
+  description: Create a persistent event-driven conditional notification. Returns the normalized record.
+  fields:
+    definition:
+      name: Definition
+      description: A bounded definition object; arbitrary automation actions are not accepted.
+      required: true
+      example:
+        name: Kitchen motion
+        triggers:
+          - type: state
+            entity_id: binary_sensor.kitchen_motion
+            to: "on"
+        title: Kitchen motion
+        message: "{{ trigger.friendly_name }} detected motion."
+        repeat_policy: once
+      selector:
+        object:
+list:
+  name: List
+  description: List or search conditional notifications visible to the caller. Returns structured records.
+  fields:
+    query:
+      name: Search
+      description: Optional name, description, semantic-key, or entity search.
+      selector: {text: {}}
+get:
+  name: Get
+  description: Get one unambiguous notification by immutable ID, semantic key, or exact name.
+  fields: &reference
+    notification_id:
+      name: Notification reference
+      required: true
+      selector: {text: {}}
+update:
+  name: Update
+  description: Validate and update bounded fields on one notification.
+  fields:
+    <<: *reference
+    changes:
+      name: Changes
+      required: true
+      selector: {object: {}}
+delete:
+  name: Delete
+  description: Permanently delete one unambiguous notification and clean up its listeners.
+  fields: *reference
+pause:
+  name: Pause
+  description: Temporarily stop watching while retaining the definition and history.
+  fields: *reference
+resume:
+  name: Resume
+  description: Resume a paused notification and reconstruct its listeners.
+  fields: *reference
+enable:
+  name: Enable
+  description: Enable a disabled notification.
+  fields: *reference
+disable:
+  name: Disable
+  description: Disable a notification without deleting it.
+  fields: *reference
+duplicate:
+  name: Duplicate
+  description: Copy a notification with fresh identity and runtime state.
+  fields:
+    <<: *reference
+    name:
+      name: New name
+      selector: {text: {}}
+test:
+  name: Test delivery
+  description: Render and deliver using the real providers without adding occurrence history or changing counts.
+  fields: *reference
+trigger_now:
+  name: Trigger now
+  description: Submit a manual diagnostic occurrence through normal conditions, timing, cooldown, and count checks.
+  fields: *reference
+fire_named_trigger:
+  name: Fire named trigger
+  description: Fire an integration-owned semantic trigger. This cannot execute an arbitrary Home Assistant action.
+  fields:
+    trigger_id:
+      name: Trigger ID
+      required: true
+      selector: {text: {}}
+    data:
+      name: Bounded context data
+      selector: {object: {}}
+clear_history:
+  name: Clear history
+  description: Clear history for one owned notification. Administrators may omit the reference to clear all history.
+  fields:
+    notification_id:
+      name: Notification reference
+      description: Optional for administrators; normal users must select one of their records.
+      selector: {text: {}}

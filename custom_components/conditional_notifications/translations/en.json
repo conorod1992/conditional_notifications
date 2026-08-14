@@ -1,0 +1,28 @@
+{
+  "title": "Conditional Notifications",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Conditional Notifications",
+        "description": "Create event-driven notifications without disposable automations."
+      }
+    },
+    "abort": {"already_configured": "Conditional Notifications is already configured."}
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Conditional Notifications preferences",
+        "data": {
+          "panel_enabled": "Show sidebar panel",
+          "persistent_notification": "Use persistent notifications by default",
+          "notify_services": "Default notify services (comma-separated)",
+          "history_retention_days": "History retention (days)",
+          "history_max_records": "Maximum history records",
+          "retain_content": "Retain rendered notification content in history"
+        }
+      }
+    }
+  },
+  "entity": {"sensor": {"conditional_notifications_summary": {"name": "Active"}}}
+}

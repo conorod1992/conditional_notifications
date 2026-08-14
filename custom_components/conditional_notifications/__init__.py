@@ -1,0 +1,77 @@
+"""Conditional Notifications integration setup."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from homeassistant.components import frontend
+from homeassistant.components.http import StaticPathConfig
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+
+from .const import DOMAIN, PANEL_PATH, PANEL_URL, PLATFORMS
+from .llm import async_register_llm_api
+from .manager import NotificationManager
+from .services import async_register_services, async_unregister_services
+from .websocket import async_register_websocket
+
+type ConditionalNotificationsConfigEntry = ConfigEntry[NotificationManager]
+
+
+async def async_setup_entry(
+    hass: HomeAssistant, entry: ConditionalNotificationsConfigEntry
+) -> bool:
+    """Set up the sole config entry."""
+    manager = NotificationManager(hass, dict(entry.options))
+    await manager.async_initialize()
+    entry.runtime_data = manager
+    hass.data.setdefault(DOMAIN, {})["manager"] = manager
+
+    async_register_services(hass, manager)
+    async_register_websocket(hass)
+    entry.async_on_unload(async_register_llm_api(hass, manager))
+
+    if manager.options.get("panel_enabled", True):
+        panel_file = Path(__file__).parent / "frontend" / "conditional-notifications-panel.js"
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig(PANEL_URL, str(panel_file), cache_headers=True)]
+        )
+        frontend.async_register_built_in_panel(
+            hass,
+            component_name="custom",
+            sidebar_title="Conditional Notifications",
+            sidebar_icon="mdi:bell-badge-outline",
+            frontend_url_path=PANEL_PATH,
+            config={
+                "_panel_custom": {
+                    "name": "conditional-notifications-panel",
+                    "module_url": PANEL_URL,
+                    "embed_iframe": False,
+                    "trust_external": False,
+                    "handle_safe_area": True,
+                }
+            },
+            require_admin=False,
+        )
+        entry.async_on_unload(lambda: frontend.async_remove_panel(hass, PANEL_PATH))
+
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    return True
+
+
+async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def async_unload_entry(
+    hass: HomeAssistant, entry: ConditionalNotificationsConfigEntry
+) -> bool:
+    """Unload every listener and integration-owned registration."""
+    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if not unloaded:
+        return False
+    await entry.runtime_data.async_shutdown()
+    async_unregister_services(hass)
+    hass.data.pop(DOMAIN, None)
+    return True
