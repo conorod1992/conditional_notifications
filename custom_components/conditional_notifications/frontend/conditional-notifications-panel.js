@@ -57,7 +57,9 @@ class ConditionalNotificationsPanel extends HTMLElement {
       this.hass.callWS({type:`${WS}/list`, query:this.search || undefined}),
       this.hass.callWS({type:`${WS}/history`}),
     ]);
-    this.render();
+    // Replacing the editor DOM while somebody is typing destroys the focused
+    // control. The refreshed records will be rendered when the editor closes.
+    if (!this.editor) this.render();
   }
   async action(id, action) {
     if (action === "delete" && !confirm("Delete this conditional notification? This cannot be undone.")) return;
@@ -112,6 +114,15 @@ class ConditionalNotificationsPanel extends HTMLElement {
     return {watching, active, conditions, behaviour, delivery:d.delivery?.use_defaults !== false ? "Use my notification defaults" : "Custom delivery", expiry:d.notify_on_expiry ? "Notify me if nothing qualifies" : "Expire silently", resolution:d.resolve_when?`Resolve when ${this.triggerSummary(d.resolve_when)}`:"No automatic resolution"};
   }
 
+  previewMarkup(preview) {
+    return `<h3>Plain-English preview</h3>${Object.entries(preview).map(([k,v])=>`<div><strong>${k[0].toUpperCase()+k.slice(1)}:</strong> ${esc(v)}</div>`).join("")}`;
+  }
+
+  updatePreview() {
+    const preview = this.shadowRoot?.querySelector(".preview");
+    if (preview && this.editor) preview.innerHTML = this.previewMarkup(this.preview(this.editor.definition));
+  }
+
   onField(event) {
     const target = event.currentTarget;
     const path = target.dataset.path?.split(".");
@@ -122,7 +133,11 @@ class ConditionalNotificationsPanel extends HTMLElement {
     if (target.type === "number") value = value === "" ? undefined : Number(value);
     if (target.type === "datetime-local") value = value ? new Date(value).toISOString() : undefined;
     if (value === undefined || value === "") delete object[path.at(-1)]; else object[path.at(-1)] = value;
-    this.markDirty(); this.render();
+    if (target.localName === "ha-entity-picker") target.dataset.value = value ?? "";
+    this.markDirty();
+    const structuralFields = new Set(["repeat_policy", "notify_on_expiry", "delivery.use_defaults"]);
+    if (event.type === "change" && structuralFields.has(path.join("."))) this.render();
+    else this.updatePreview();
   }
   addTrigger() { this.editor.definition.triggers.push({type:"state", entity_id:"", to:"on"}); this.markDirty(); this.render(); }
   removeTrigger(index) { if (this.editor.definition.triggers.length > 1) { this.editor.definition.triggers.splice(index,1); this.markDirty(); this.render(); } }
@@ -191,7 +206,7 @@ class ConditionalNotificationsPanel extends HTMLElement {
         <section><h3>Behaviour</h3><div class="choice-row">${[["once","Once"],["every","Every trigger"],["limited","Limited count"]].map(([v,l])=>`<label class="choice"><input type="radio" name="repeat" data-path="repeat_policy" value="${v}" ${d.repeat_policy===v?"checked":""}><span><strong>${l}</strong><small>${v==="once"?"Notify once, then stop":v==="every"?"Keep watching after each match":"Stop after a chosen number"}</small></span></label>`).join("")}</div>${d.repeat_policy==="limited"?`<label>Maximum notifications<input type="number" min="1" data-path="max_notifications" value="${d.max_notifications||3}"></label>`:""}</section>
         <section><h3>Active period</h3><div class="grid"><label>Available from<input type="datetime-local" data-path="available_from" value="${d.available_from?new Date(d.available_from).toISOString().slice(0,16):""}"></label><label>Expires at<input type="datetime-local" data-path="expires_at" value="${d.expires_at?new Date(d.expires_at).toISOString().slice(0,16):""}"></label></div><label class="check"><input type="checkbox" data-path="notify_on_expiry" ${d.notify_on_expiry?"checked":""}> Notify me if nothing qualifies before expiry</label>${d.notify_on_expiry?`<div class="grid"><label>Expiry title<input data-path="expiry_title" value="${esc(d.expiry_title||`Expired: ${d.name}`)}"></label><label>Expiry message<input data-path="expiry_message" value="${esc(d.expiry_message||"No qualifying event occurred.")}"></label></div>`:""}</section>
         <details><summary>Advanced options</summary><div class="advanced"><div class="grid"><label>Cooldown (seconds)<input type="number" min="0" data-path="cooldown" value="${d.cooldown||""}"><small>Minimum time after a notification before another is allowed.</small></label><label>Debounce (seconds)<input type="number" min="0" data-path="debounce" value="${d.debounce||""}"><small>Ignore rapid repeated changes within this period.</small></label></div><label class="check"><input type="checkbox" data-path="match_current_state" ${d.match_current_state?"checked":""}> Match the current state immediately when first created</label><label class="check"><input type="checkbox" id="recurring-toggle" ${d.active_window?"checked":""}> Limit to a recurring local-time window</label>${d.active_window?`<div class="grid"><label>Window starts<input type="time" data-path="active_window.start" value="${esc(d.active_window.start)}"></label><label>Window ends<input type="time" data-path="active_window.end" value="${esc(d.active_window.end)}"></label></div><label>Active weekdays<input id="weekdays" value="${esc(d.active_window.weekdays.join(", "))}"><small>Comma-separated weekdays. Overnight hours after midnight belong to the start day.</small></label>`:""}<label class="check"><input type="checkbox" id="resolve-toggle" ${d.resolve_when?"checked":""}> Auto-resolve when a state clears</label>${d.resolve_when?`<div class="grid"><label>Resolution entity<ha-entity-picker data-path="resolve_when.entity_id" data-value="${esc(d.resolve_when.entity_id||"")}"></ha-entity-picker></label><label>Resolution state<input data-path="resolve_when.to" value="${esc(d.resolve_when.to||"off")}"></label></div><label class="check"><input type="checkbox" data-path="clear_on_resolve" ${d.clear_on_resolve!==false?"checked":""}> Clear the tagged persistent notification when resolved</label>`:""}<label class="check"><input type="checkbox" data-path="delivery.use_defaults" ${d.delivery?.use_defaults!==false?"checked":""}> Use my notification defaults</label>${d.delivery?.use_defaults===false?`<label class="check"><input type="checkbox" data-path="delivery.persistent_notification" ${d.delivery.persistent_notification?"checked":""}> Persistent notification</label><label>Notify services<input id="notify-services" value="${esc((d.delivery.notify_services||[]).join(", "))}"><small>For example: notify.mobile_app_conors_phone</small></label>`:""}</div></details>
-        <section class="preview"><h3>Plain-English preview</h3>${Object.entries(preview).map(([k,v])=>`<div><strong>${k[0].toUpperCase()+k.slice(1)}:</strong> ${esc(v)}</div>`).join("")}</section>
+        <section class="preview">${this.previewMarkup(preview)}</section>
       </div><footer><button class="secondary" id="cancel-editor">Cancel</button><button class="primary" id="save-editor">${this.editor.id?"Save changes":"Create notification"}</button></footer>
     </div></div>`;
   }
@@ -225,7 +240,7 @@ class ConditionalNotificationsPanel extends HTMLElement {
     this.shadowRoot.innerHTML = `${this.styles()}<main class="page"><div class="hero"><div><h1>Conditional Notifications</h1><p>Notify me when something happens.</p></div><button class="primary" id="create">+ Create notification</button></div><div class="toolbar"><div class="search"><input id="search" aria-label="Search conditional notifications" placeholder="Search names, entities, or descriptions" value="${esc(this.search)}"></div></div><nav class="tabs" aria-label="Notification views">${["active","paused","history","expired"].map(t=>`<button class="tab ${this.tab===t?"active":""}" data-tab="${t}">${t[0].toUpperCase()+t.slice(1)} <span class="count">${counts[t]}</span></button>`).join("")}</nav><section class="content">${this.loading?`<div class="cards"><div class="skeleton"></div><div class="skeleton"></div></div>`:this.tab==="history"?this.renderHistory():items.length?`<div class="cards">${items.map(r=>this.renderCard(r)).join("")}</div>`:this.empty(this.tab==="active"?"Nothing is watching yet":`No ${this.tab} notifications`,this.tab==="active"?"Create a one-time or repeating watch in a few selections.":"Items will appear here when their status changes.")}</section></main>${this.renderEditor()}${this.toast?`<div class="toast" role="status">${esc(this.toast)}</div>`:""}`;
     this.bind(); this.bindHass();
   }
-  bindHass() { if (!this.shadowRoot || !this.hass) return; this.shadowRoot.querySelectorAll("ha-entity-picker").forEach(el=>{el.hass=this.hass;el.value=el.dataset.value||"";if(el.dataset.domain)el.includeDomains=[el.dataset.domain];}); }
+  bindHass() { if (!this.shadowRoot || !this.hass) return; this.shadowRoot.querySelectorAll("ha-entity-picker").forEach(el=>{el.hass=this.hass;if(!el._conditionalNotificationsReady){el.value=el.dataset.value||"";if(el.dataset.domain)el.includeDomains=[el.dataset.domain];el._conditionalNotificationsReady=true;}}); }
   bind() {
     const root=this.shadowRoot;
     root.querySelector("#create")?.addEventListener("click",()=>this.openEditor()); root.querySelector("#empty-create")?.addEventListener("click",()=>this.openEditor());
@@ -244,7 +259,18 @@ class ConditionalNotificationsPanel extends HTMLElement {
     root.querySelector("#save-editor")?.addEventListener("click",()=>this.save()); root.querySelector("#cancel-editor")?.addEventListener("click",()=>this.closeEditor()); root.querySelector("#close-editor")?.addEventListener("click",()=>this.closeEditor());
     root.querySelector(".scrim")?.addEventListener("click",e=>{if(e.target.classList.contains("scrim"))this.closeEditor();});
   }
-  showToast(message) { this.toast=message; this.render(); clearTimeout(this.toastTimer); this.toastTimer=setTimeout(()=>{this.toast="";this.render();},3500); }
+  renderToast() {
+    const current = this.shadowRoot?.querySelector(".toast");
+    if (!this.toast) { current?.remove(); return; }
+    if (current) { current.textContent = this.toast; return; }
+    const toast = document.createElement("div");
+    toast.className = "toast"; toast.setAttribute("role", "status"); toast.textContent = this.toast;
+    this.shadowRoot?.append(toast);
+  }
+  showToast(message) {
+    this.toast=message; this.renderToast(); clearTimeout(this.toastTimer);
+    this.toastTimer=setTimeout(()=>{this.toast="";this.renderToast();},3500);
+  }
 }
 
 if (!customElements.get("conditional-notifications-panel")) customElements.define("conditional-notifications-panel", ConditionalNotificationsPanel);

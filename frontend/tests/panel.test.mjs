@@ -28,3 +28,64 @@ test("plain English preview distinguishes once, cooldown, and expiry", () => {
   assert.match(result.behaviour, /20 minutes/);
   assert.equal(result.expiry, "Expire silently");
 });
+
+test("typing updates editor state without replacing the focused form", () => {
+  let renders = 0;
+  let previews = 0;
+  const context = {
+    editor:{definition:{name:""}},
+    markDirty() {},
+    render() { renders += 1; },
+    updatePreview() { previews += 1; },
+  };
+  panel.onField.call(context, {
+    type:"input",
+    currentTarget:{dataset:{path:"name"}, type:"text", value:"Kitchen"},
+  });
+  assert.equal(context.editor.definition.name, "Kitchen");
+  assert.equal(renders, 0);
+  assert.equal(previews, 1);
+});
+
+test("only structural field changes rebuild the editor", () => {
+  let renders = 0;
+  const context = {
+    editor:{definition:{repeat_policy:"once"}},
+    markDirty() {},
+    render() { renders += 1; },
+    updatePreview() {},
+  };
+  panel.onField.call(context, {
+    type:"change",
+    currentTarget:{dataset:{path:"repeat_policy"}, type:"radio", value:"limited"},
+  });
+  assert.equal(context.editor.definition.repeat_policy, "limited");
+  assert.equal(renders, 1);
+});
+
+test("live record refresh does not replace an open editor", async () => {
+  let renders = 0;
+  const context = {
+    editor:{definition:{}}, search:"", records:[], history:[],
+    hass:{callWS:async ({type}) => type.endsWith("/list") ? ["record"] : ["history"]},
+    render() { renders += 1; },
+  };
+  await panel.refresh.call(context);
+  assert.deepEqual(context.records, ["record"]);
+  assert.deepEqual(context.history, ["history"]);
+  assert.equal(renders, 0);
+});
+
+test("Home Assistant updates do not reset an initialized entity picker", () => {
+  const picker = {dataset:{value:"light.kitchen", domain:"light"}};
+  const context = {
+    hass:{states:{}},
+    shadowRoot:{querySelectorAll:() => [picker]},
+  };
+  panel.bindHass.call(context);
+  assert.equal(picker.value, "light.kitchen");
+  assert.deepEqual(picker.includeDomains, ["light"]);
+  picker.value = "light.office";
+  panel.bindHass.call(context);
+  assert.equal(picker.value, "light.office");
+});
