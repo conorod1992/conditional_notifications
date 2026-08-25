@@ -14,8 +14,8 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.template import Template, TemplateError
 from homeassistant.util import dt as dt_util
 
-from .conditions import async_evaluate_conditions
-from .const import DEFAULT_OPTIONS, DOMAIN, EVENTS, SIGNAL_CHANGED
+from .conditions import async_evaluate_conditions, numeric_matches, state_value
+from .const import DEFAULT_OPTIONS, DOMAIN, EVENTS, SIGNAL_CHANGED, UNKNOWN_STATES
 from .delivery import async_clear, async_deliver, async_render
 from .models import HistoryItem, NotificationRecord, duration_seconds, parse_datetime, utc_iso
 from .storage import NotificationStore
@@ -99,7 +99,7 @@ class NotificationManager:
                 key: value for key, value in details.items() if key not in {"title", "message"}
             }
         self.store.add_history(
-            HistoryItem.create(record.id, event, summary, details),
+            HistoryItem.create(record.id, event, summary, details, record.owner_id),
             days=int(self.options["history_retention_days"]),
             maximum=int(self.options["history_max_records"]),
         )
@@ -126,6 +126,67 @@ class NotificationManager:
 
     def can_access(self, record: NotificationRecord, user_id: str | None, is_admin: bool) -> bool:
         return is_admin or record.owner_id is None or record.owner_id == user_id
+
+    def history_for_user(
+        self, user_id: str | None, is_admin: bool, notification_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Return retained history without losing ownership after deletion."""
+        items = self.store.history_for(notification_id)
+        if is_admin:
+            return items
+        accessible_records = {
+            record.id
+            for record in self.store.records.values()
+            if self.can_access(record, user_id, False)
+        }
+        return [
+            item
+            for item in items
+            if item["owner_id"] == user_id
+            or (item["owner_id"] is None and item["notification_id"] in accessible_records)
+        ]
+
+    @staticmethod
+    def _definition_is_semantic_change(
+        old_definition: dict[str, Any], new_definition: dict[str, Any]
+    ) -> bool:
+        semantic_fields = {
+            "triggers",
+            "conditions",
+            "repeat_policy",
+            "max_notifications",
+            "available_from",
+            "expires_at",
+            "active_window",
+            "cooldown",
+            "debounce",
+            "notify_on_expiry",
+            "resolve_when",
+            "clear_on_resolve",
+        }
+        return any(old_definition.get(key) != new_definition.get(key) for key in semantic_fields)
+
+    @staticmethod
+    def _completed_naturally(record: NotificationRecord) -> bool:
+        policy = record.definition.get("repeat_policy")
+        return record.notification_count > 0 and (
+            policy == "once"
+            or (
+                policy == "limited"
+                and record.notification_count >= int(record.definition.get("max_notifications", 0))
+            )
+        )
+
+    @staticmethod
+    def _reset_runtime_state(record: NotificationRecord) -> None:
+        record.notification_count = 0
+        record.qualifying_match_seen = False
+        record.last_accepted_at = None
+        record.last_trigger_at = None
+        record.last_trigger = None
+        record.last_ignored_reason = None
+        record.last_delivery = []
+        record.active_occurrence = False
 
     def list_records(
         self, user_id: str | None, is_admin: bool, query: str | None = None
@@ -203,20 +264,36 @@ class NotificationManager:
             merged["name"] = changes.get("name", record.name)
             normalized = validate_definition(merged)
             self._validate_templates(normalized)
-            record.revision += 1
             requested_enabled = bool(normalized.pop("enabled", record.enabled))
+            semantic_change = self._definition_is_semantic_change(record.definition, normalized)
+            naturally_completed = self._completed_naturally(record)
+            previous_status = record.status
+            record.revision += 1
             record.definition = normalized
             record.name = normalized["name"]
             record.semantic_key = normalized.get("semantic_key")
             record.description = normalized.get("description")
             if "enabled" in changes:
                 record.enabled = requested_enabled
+            elif semantic_change and (
+                naturally_completed or previous_status in {"expired", "error"}
+            ):
+                record.enabled = True
+            if semantic_change:
+                self._reset_runtime_state(record)
             record.updated_at = utc_iso()
-            record.status = (
-                "paused" if record.paused else ("watching" if record.enabled else "disabled")
+            if semantic_change or "enabled" in changes:
+                record.status = (
+                    "paused" if record.paused else ("watching" if record.enabled else "disabled")
+                )
+            self._add_history(
+                record,
+                "updated",
+                "Definition updated; runtime progress reset"
+                if semantic_change
+                else "Definition updated",
+                {"runtime_reset": semantic_change},
             )
-            record.last_ignored_reason = None
-            self._add_history(record, "updated", "Definition updated")
             await self.store.async_save()
         await self.async_rebuild(record)
         self._event("updated", record)
@@ -339,8 +416,59 @@ class NotificationManager:
                 len(record.definition["triggers"]),
                 resolved,
             )
+            await self._async_resolve_if_current(record)
         if allow_current and record.definition.get("match_current_state"):
             await self._async_match_current(record)
+
+    def _current_resolution_context(self, record: NotificationRecord) -> dict[str, Any] | None:
+        """Describe a currently satisfied transition-like resolution conservatively."""
+        definition = record.definition.get("resolve_when")
+        if not definition or not record.active_occurrence:
+            return None
+        kind = definition["type"]
+        if kind not in {"state", "numeric_state", "zone"}:
+            return None
+        entity_id = definition["entity_id"]
+        current = self.hass.states.get(entity_id)
+        if current is None:
+            return None
+        matched = False
+        actual: Any = None
+        if kind == "state":
+            if "to" not in definition:
+                return None
+            actual = state_value(current, definition.get("attribute"))
+            matched = actual not in UNKNOWN_STATES and actual == definition["to"]
+        elif kind == "numeric_state":
+            raw = state_value(current, definition.get("attribute"))
+            try:
+                actual = float(raw)
+            except TypeError, ValueError:
+                actual = None
+            matched = numeric_matches(actual, definition)
+        else:
+            zone = self.hass.states.get(definition["zone_entity_id"])
+            zone_name = (
+                zone.attributes.get("friendly_name")
+                if zone
+                else definition["zone_entity_id"].split(".", 1)[-1].replace("_", " ")
+            )
+            inside = current.state.casefold() == str(zone_name).casefold()
+            matched = inside if definition["event"] == "enter" else not inside
+            actual = current.state
+        if not matched:
+            return None
+        return {
+            "type": kind,
+            "entity_id": entity_id,
+            "current_value": actual,
+            "matched_current_resolution": True,
+            "timestamp": dt_util.now().isoformat(),
+        }
+
+    async def _async_resolve_if_current(self, record: NotificationRecord) -> None:
+        if context := self._current_resolution_context(record):
+            await self._async_resolve(record.id, record.revision, context)
 
     async def _async_match_current(self, record: NotificationRecord) -> None:
         for index, definition in enumerate(record.definition["triggers"]):
@@ -468,6 +596,7 @@ class NotificationManager:
                 current.status = "watching"
             self._add_history(current, event, summary, details)
             await self.store.async_save()
+        await self._async_resolve_if_current(record)
         await self.async_rebuild(record)
         self._event("triggered", record)
 
@@ -492,15 +621,37 @@ class NotificationManager:
         if source := record.definition.get("resolved_message"):
             try:
                 message = await async_render(self.hass, source, trigger, record)
-                await async_deliver(
+                results = await async_deliver(
                     self.hass,
                     record,
                     record.definition.get("resolved_title", f"Resolved: {record.name}"),
                     message,
                     self.options["delivery"],
                 )
-            except (TemplateError, ValueError):
-                pass
+                if not any(result["success"] for result in results):
+                    async with self._lock(record_id):
+                        current = self.store.records.get(record_id)
+                        if not current or current.revision != revision:
+                            return
+                        self._add_history(
+                            current,
+                            "delivery_failed",
+                            "All resolution delivery channels failed",
+                            {"phase": "resolution", "delivery": results},
+                        )
+                        await self.store.async_save()
+            except (TemplateError, ValueError) as err:
+                async with self._lock(record_id):
+                    current = self.store.records.get(record_id)
+                    if not current or current.revision != revision:
+                        return
+                    self._add_history(
+                        current,
+                        "template_error",
+                        "Resolution template could not be rendered",
+                        {"phase": "resolution", "error": str(err)[:300]},
+                    )
+                    await self.store.async_save()
         await self.async_rebuild(record)
         self._event("resolved", record)
 
@@ -541,10 +692,13 @@ class NotificationManager:
                     self.hass, record, title, message, self.options["delivery"]
                 )
                 async with self._lock(record_id):
+                    success = any(result["success"] for result in results)
                     self._add_history(
                         record,
-                        "expiry_notification",
-                        "No-event expiry notification sent",
+                        "expiry_notification" if success else "delivery_failed",
+                        "No-event expiry notification sent"
+                        if success
+                        else "All no-event expiry delivery channels failed",
                         {"title": title, "message": message, "delivery": results},
                     )
                     await self.store.async_save()

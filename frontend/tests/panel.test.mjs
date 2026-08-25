@@ -18,7 +18,7 @@ test("state trigger summary includes minimum duration", () => {
 });
 
 test("plain English preview distinguishes once, cooldown, and expiry", () => {
-  const context = {triggerSummary:panel.triggerSummary, duration:panel.duration};
+  const context = {triggerSummary:panel.triggerSummary, conditionSummary:panel.conditionSummary, duration:panel.duration};
   const result = panel.preview.call(context, {
     triggers:[{type:"state",entity_id:"binary_sensor.motion",to:"on"}],
     conditions:[],repeat_policy:"every",cooldown:1200,delivery:{use_defaults:true},
@@ -27,6 +27,62 @@ test("plain English preview distinguishes once, cooldown, and expiry", () => {
   assert.match(result.behaviour, /every distinct match/);
   assert.match(result.behaviour, /20 minutes/);
   assert.equal(result.expiry, "Expire silently");
+});
+
+test("plain English preview describes every supported condition", () => {
+  const context = {triggerSummary:panel.triggerSummary, conditionSummary:panel.conditionSummary, duration:panel.duration};
+  const result = panel.preview.call(context, {
+    triggers:[{type:"state",entity_id:"binary_sensor.motion",to:"on"}],
+    conditions:[
+      {type:"state",entity_id:"person.conor",state:"home",negate:true},
+      {type:"numeric_state",entity_id:"sensor.temperature",above:18,below:25},
+      {type:"zone",entity_id:"person.alex",zone_entity_id:"zone.work"},
+      {type:"time",after:"09:00",before:"17:00",weekdays:["monday"]},
+    ],
+    repeat_policy:"once",delivery:{use_defaults:true},notify_on_expiry:false,
+  });
+  assert.match(result.conditions, /Conor is not home/);
+  assert.match(result.conditions, /Temperature is above 18 and below 25/);
+  assert.match(result.conditions, /Alex is in Work/);
+  assert.match(result.conditions, /after 09:00 and before 17:00 on monday/);
+});
+
+test("condition type changes create bounded backend-compatible definitions", () => {
+  for (const [type, expected] of [["state","state"],["numeric_state",0],["zone","zone.home"],["time","09:00"]]) {
+    const context = {editor:{definition:{conditions:[{}]}},markDirty(){},render(){}};
+    panel.changeCondition.call(context,0,type);
+    const condition = context.editor.definition.conditions[0];
+    assert.equal(condition.type,type);
+    assert.ok(Object.values(condition).includes(expected));
+  }
+});
+
+test("condition renderer exposes all four condition types and Home Assistant pickers", () => {
+  const context = {editor:{definition:{}},errors:{}};
+  const state = panel.renderCondition.call(context,{type:"state",entity_id:"person.me",state:"home"},0);
+  assert.match(state,/state/); assert.match(state,/numeric_state/); assert.match(state,/zone/); assert.match(state,/time/);
+  assert.match(state,/ha-entity-picker/); assert.match(state,/Required state/); assert.match(state,/Attribute \(optional\)/);
+  assert.match(panel.renderCondition.call(context,{type:"zone",entity_id:"person.me",zone_entity_id:"zone.home"},0),/data-domain="zone"/);
+  assert.match(panel.renderCondition.call(context,{type:"time",after:"09:00",weekdays:["monday"]},0),/data-condition-weekday/);
+});
+
+test("saving an edit reports success after the editor is cleared", async () => {
+  const calls = [];
+  const context = {
+    editor:{id:"abc",definition:{name:"Edited"}},dirty:true,
+    validate:()=>({}),hass:{callWS:async message=>calls.push(message)},
+    closeEditor(){this.editor=null;},showToast(message){this.message=message;},async refresh(){},
+  };
+  await panel.save.call(context);
+  assert.equal(context.message,"Changes saved");
+  assert.equal(calls[0].type,"conditional_notifications/update");
+});
+
+test("cards expose Duplicate and omit the redundant menu", () => {
+  const context = {triggerSummary:panel.triggerSummary};
+  const markup = panel.renderCard.call(context,{id:"one",name:"One",status:"watching",enabled:true,paused:false,currently_active:true,notification_count:0,remaining_notifications:null,definition:{triggers:[{type:"state",entity_id:"light.one",to:"on"}]}});
+  assert.match(markup,/data-action="duplicate"/);
+  assert.doesNotMatch(markup,/data-menu=/);
 });
 
 test("typing updates editor state without replacing the focused form", () => {

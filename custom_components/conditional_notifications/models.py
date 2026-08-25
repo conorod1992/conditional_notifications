@@ -79,12 +79,18 @@ class HistoryItem:
     event: str
     summary: str
     details: dict[str, Any] = field(default_factory=dict)
+    owner_id: str | None = None
 
     @classmethod
     def create(
-        cls, notification_id: str, event: str, summary: str, details: dict[str, Any] | None = None
+        cls,
+        notification_id: str,
+        event: str,
+        summary: str,
+        details: dict[str, Any] | None = None,
+        owner_id: str | None = None,
     ) -> HistoryItem:
-        return cls(uuid4().hex, notification_id, utc_iso(), event, summary, details or {})
+        return cls(uuid4().hex, notification_id, utc_iso(), event, summary, details or {}, owner_id)
 
 
 @dataclass(slots=True)
