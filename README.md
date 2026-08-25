@@ -1,67 +1,123 @@
 # Conditional Notifications
 
-**Conditional Notifications** is a Home Assistant custom integration for one simple idea:
+**Conditional Notifications** is a custom integration for Home Assistant that lets you create notifications which wait for something to happen.
 
-> Notify me when something happens.
+For example:
 
-It owns durable, inspectable watches instead of generating disposable automations. Create one in a friendly sidebar panel, from a Home Assistant action, or through a bounded LLM tool; the integration subscribes directly to Home Assistant state/events and restores those subscriptions after a restart.
+- notify me the next time the kitchen detects motion;
+- tell me if the front door opens while I am away;
+- alert me when the freezer becomes too warm;
+- notify me if **nothing** happens before a deadline;
+- keep notifying me when something happens, with an optional cooldown between alerts.
 
-## Why this exists
+You create and manage these from a **Conditional Notifications** panel in the Home Assistant sidebar. No YAML configuration is required.
 
-A reminder answers “tell me at 10:00.” A deferred action answers “turn this off later.” A conditional notification answers “tell me the next time the kitchen detects motion.” That last job should not require an automation, helper entity, or cleanup afterwards.
+> A normal reminder says **“tell me at 10:00.”**  
+> A conditional notification says **“tell me when this happens.”**
 
-Conditional Notifications provides:
+## What can it do?
 
-- one-shot, repeating, and limited-count watches;
-- state, numeric-state, zone, event, and semantic named triggers;
-- multiple triggers with clear **any** semantics;
-- bounded state, numeric, zone, and time conditions with AND semantics;
-- absolute availability/expiry and recurring local-time windows;
-- cooldown, debounce, and minimum-duration controls;
-- optional no-event notification at expiry;
-- auto-resolution with optional persistent-notification clearing;
-- Home Assistant persistent notifications and normal `notify` targets;
-- response-capable actions, authenticated WebSockets, and structured LLM tools;
-- bounded history and a compact aggregate sensor—never one entity per watch.
+A conditional notification can watch for:
+
+- an entity changing state;
+- a sensor entering a numeric range;
+- a person or device entering or leaving a zone;
+- a Home Assistant event;
+- a named trigger fired by another automation, script, integration, or action.
+
+You can also add:
+
+- multiple triggers — notify when **any** of them happens;
+- conditions — only notify if **all** conditions are true;
+- start and expiry times;
+- recurring time windows;
+- cooldowns and debounce;
+- a minimum duration, such as “only if the door stays open for 5 minutes”;
+- one-off, repeating, or limited-count notifications;
+- an optional notification when the watch expires without anything happening;
+- automatic resolution when the problem clears.
+
+Notifications can be delivered as Home Assistant persistent notifications, through `notify` entities such as the Companion App, or both.
 
 ## Installation
 
 ### HACS
 
-1. In HACS, add `https://github.com/conorod1992/conditional_notifications` as a custom **Integration** repository.
-2. Install **Conditional Notifications**.
+If you already use HACS:
+
+1. Open **HACS** in Home Assistant.
+2. Select the **three-dot menu** in the top-right corner.
+3. Choose **Custom repositories**.
+4. Add:
+
+   ```text
+   https://github.com/conorod1992/conditional_notifications
+   ```
+
+5. Select **Integration** as the repository type.
+6. Select **Add**.
+7. Find **Conditional Notifications** in HACS and download it.
+8. Restart Home Assistant.
+9. Go to **Settings → Devices & services**.
+10. Select **Add integration**, search for **Conditional Notifications**, and add it.
+
+Home Assistant **2026.6.0 or newer** is required.
+
+> New to custom HACS repositories? Adding a custom repository simply tells HACS where to find an integration which is not in its normal catalogue. HACS still handles downloading and updating it for you.
+
+### Manual installation
+
+1. Download or clone this repository.
+2. Copy the folder:
+
+   ```text
+   custom_components/conditional_notifications
+   ```
+
+   into the `custom_components` folder inside your Home Assistant configuration directory.
+
 3. Restart Home Assistant.
-4. Open **Settings → Devices & services → Add integration → Conditional Notifications**.
-
-### Manual
-
-Copy `custom_components/conditional_notifications` into your Home Assistant configuration's `custom_components` directory, restart, and add the integration from Devices & services. Home Assistant 2026.6 or newer is required.
+4. Go to **Settings → Devices & services → Add integration**.
+5. Search for **Conditional Notifications** and add it.
 
 No YAML configuration is required.
 
-## First run and preferences
+## Getting started
 
-Adding the integration creates one local config entry and a **Conditional Notifications** sidebar item. Its options configure:
+After adding the integration, a **Conditional Notifications** item appears in the Home Assistant sidebar.
 
-- whether the panel is shown;
-- persistent notification as the default delivery channel;
-- optional comma-separated `notify` services such as `notify.mobile_app_conors_phone`;
-- history retention days and maximum record count;
-- whether rendered title/message content is retained in history.
+The panel contains:
 
-New watches default to **Use my notification defaults**, so delivery does not need to be selected every time.
+- **Active** — notifications currently waiting for something to happen;
+- **Paused** — notifications you have temporarily stopped;
+- **History** — previous activity and notification results;
+- **Expired** — watches which reached their expiry time.
 
-## Frontend
+### Create your first conditional notification
 
-The responsive panel has **Active**, **Paused**, **History**, and **Expired** views, live updates, search, counts, status/cooldown/expiry details, quick pause/test/edit/delete actions, and a mobile-friendly editor.
+A simple state-based notification only needs a few things:
 
-The beginner path needs a name, an entity, and a target state. Add another trigger to say “either”; add conditions or open Advanced only when needed. Before saving, the panel produces a plain-English preview of what is watched, when it is active, its conditions, repeat behavior, delivery, and expiry behavior.
+1. Select **Create** in the Conditional Notifications panel.
+2. Give it a name.
+3. Choose an entity.
+4. Choose the state you want to watch for.
+5. Enter the notification title and message.
+6. Save it.
 
-Entity selection uses Home Assistant's entity picker. The editor validates obvious issues before sending the definition to the backend; authoritative backend validation always runs as well.
+For example:
 
-## Examples
+> **Name:** Next kitchen motion  
+> **Entity:** Kitchen motion sensor  
+> **State:** On  
+> **Message:** Motion was detected in the kitchen.
 
-### Next kitchen motion
+The panel shows a plain-English summary before you save, so you can check what the notification will watch for.
+
+You do not need to configure the advanced options unless you need them.
+
+## A few useful examples
+
+### Notify me the next time motion is detected
 
 ```yaml
 name: Next kitchen motion
@@ -74,7 +130,9 @@ message: "{{ trigger.friendly_name }} detected motion at {{ trigger.timestamp }}
 repeat_policy: once
 ```
 
-### Study or bedroom motion until Sunday
+This triggers once, then stops.
+
+### Notify me if either of two motion sensors activates
 
 ```yaml
 name: Upstairs motion this weekend
@@ -86,13 +144,15 @@ triggers:
   - type: state
     entity_id: binary_sensor.bedroom_motion
     to: "on"
-expires_at: "2026-08-16T18:00:00+01:00"
+expires_at: "2026-08-30T18:00:00+01:00"
 title: Upstairs motion
 message: "{{ trigger.friendly_name }} detected motion."
 repeat_policy: once
 ```
 
-### Front door while away
+With multiple triggers, **any one** of them can satisfy the notification.
+
+### Notify me when the front door opens, but only while I am away
 
 ```yaml
 name: Front door while away
@@ -110,7 +170,9 @@ repeat_policy: every
 cooldown: 1200
 ```
 
-### Freezer alert that resolves
+This can notify repeatedly, but the 1200-second cooldown prevents another accepted notification for 20 minutes.
+
+### Notify me if the freezer becomes too warm
 
 ```yaml
 name: Freezer too warm
@@ -128,9 +190,15 @@ repeat_policy: every
 clear_on_resolve: true
 ```
 
-### Nothing happened before 10:00
+This also defines a resolution condition. When the temperature falls below `-12`, the active problem is considered resolved.
 
-Set a normal qualifying trigger, an offset-aware `expires_at`, and:
+If the notification was delivered as a persistent Home Assistant notification, `clear_on_resolve: true` can dismiss that persistent notification automatically.
+
+### Notify me if nothing happened before a deadline
+
+Create a normal trigger, set an expiry time, then enable **Notify on expiry**.
+
+Equivalent definition:
 
 ```yaml
 notify_on_expiry: true
@@ -138,96 +206,422 @@ expiry_title: Kitchen check
 expiry_message: No kitchen motion was detected before 10:00.
 ```
 
-“No event” means no occurrence passed the trigger, timing, conditions, debounce, and cooldown checks. Silent expiry is the default. Any qualifying occurrence prevents a later no-event notification for that watch.
+A “no event” notification is sent only if no qualifying occurrence was accepted before the watch expired.
 
 ## Trigger types
 
-- **State**: a genuine transition matching optional `from`, `to`, and `attribute`. `for` requires the resulting match to persist. `unknown` and `unavailable` do not match.
-- **Numeric state**: entering a strict `above`/`below` range. Remaining inside does not repeatedly trigger. One or both bounds may be supplied.
-- **Zone**: an entity enters or leaves a Home Assistant zone.
-- **Event**: a named HA event with safe subset matching of optional `event_data`; extra fired-event fields are allowed.
-- **Named**: an integration-owned `trigger_id`, fired only with `conditional_notifications.fire_named_trigger`.
+### State
 
-Multiple triggers use `match: any`. Arbitrary nested Boolean logic and arbitrary action sequences are intentionally outside this integration.
+Watches an entity for a real state change.
 
-`match_current_state` is opt-in and evaluated only when a new watch is first created. Normal state triggers require a transition, and restoring listeners after a restart does not treat the restart/current state as an occurrence.
+Examples include:
+
+- a binary sensor changing to `on`;
+- a light changing to `off`;
+- a person changing to `not_home`;
+- an attribute changing to a particular value.
+
+A normal state trigger waits for a **transition**. If the entity is already in the target state when you create the notification, it does not immediately count as a new occurrence.
+
+If you specifically want the current state to be checked when creating a new notification, enable **Match current state immediately**.
+
+`unknown` and `unavailable` do not count as matching states.
+
+### Numeric state
+
+Watches a numeric sensor for entry into a range.
+
+For example:
+
+- temperature rises above 25;
+- battery level falls below 20;
+- humidity moves between two limits.
+
+One or both of `above` and `below` can be used.
+
+The notification triggers when the value **enters** the matching range, rather than repeatedly firing while it remains there.
+
+### Zone
+
+Watches for an entity entering or leaving a Home Assistant zone.
+
+For example:
+
+- a person arrives home;
+- a device leaves the home zone;
+- a person enters a work zone.
+
+### Event
+
+Watches for a Home Assistant event.
+
+You can optionally match selected fields from the event data. The fired event may contain additional fields without preventing a match.
+
+This is mainly useful for more advanced Home Assistant setups or for events fired by another integration.
+
+### Named trigger
+
+A named trigger is an integration-owned trigger ID which you can fire using:
+
+```text
+conditional_notifications.fire_named_trigger
+```
+
+This is useful when another automation, script, or integration should signal a conditional notification without tying it directly to an entity state.
 
 ## Conditions
 
-Conditions run after a trigger wakes the watch and all must pass. Supported types are state (with optional `negate`), numeric state, zone, and local time/window. They are deliberately bounded: there is no arbitrary condition template or service execution.
+Conditions are optional extra checks.
 
-## Repeating and timing controls
+A trigger must happen first, then **all** configured conditions must pass before the notification is accepted.
 
-- **Once**: accept the first qualifying occurrence, durably count it, then stop.
-- **Every trigger**: re-arm after each distinct match.
-- **Limited**: stop after exactly `max_notifications`; the durable remaining count survives restart.
-- **Cooldown** = minimum time after an accepted notification before another is allowed.
-- **Debounce** = collapse/ignore rapid repeated trigger changes within the configured period.
-- **Minimum duration** = require the triggering state/range to persist before it qualifies. It uses a cancellable exact timer, never a sleeping task.
+Supported conditions are:
 
-`available_from` and `expires_at` must be offset-aware ISO datetimes. Home Assistant's configured timezone drives local recurring windows. An overnight window such as 22:00–07:00 treats the after-midnight segment as belonging to the previous start weekday; absolute availability, expiry, and recurring windows must all allow a trigger.
+- state;
+- numeric state;
+- zone;
+- local time or time window.
+
+For example:
+
+> Notify me when the front door opens **only if I am away**.
+
+The front-door state change is the trigger. Your presence state is the condition.
+
+Conditional Notifications intentionally supports a defined set of conditions rather than arbitrary Home Assistant action sequences or unrestricted templates.
+
+## Repeating notifications
+
+You can choose how often a notification may be accepted.
+
+### Once
+
+Notify on the first qualifying occurrence, then stop.
+
+### Every trigger
+
+Continue watching and allow future qualifying occurrences.
+
+### Limited
+
+Allow a fixed number of accepted notifications, then stop.
+
+The remaining count is saved and survives a Home Assistant restart.
+
+## Timing controls
+
+### Cooldown
+
+A cooldown sets the minimum time after an accepted notification before another one may be accepted.
+
+Example:
+
+> Notify me every time the door opens, but no more than once every 20 minutes.
+
+### Debounce
+
+Debounce helps ignore or collapse rapid repeated changes which happen close together.
+
+This can be useful for noisy sensors or events which may fire several times in quick succession.
+
+### Minimum duration
+
+A trigger can be required to remain true for a minimum time before it qualifies.
+
+Example:
+
+> Notify me if the garage door stays open for 5 minutes.
+
+If the state stops matching before the duration is reached, the pending occurrence is cancelled.
+
+### Availability and expiry
+
+You can limit when a notification is active using:
+
+- `available_from` — do not accept occurrences before this time;
+- `expires_at` — stop watching after this time;
+- recurring local-time windows.
+
+Dates and times entered directly in definitions must include their timezone offset, for example:
+
+```text
+2026-08-30T18:00:00+01:00
+```
+
+The panel handles normal user-facing date and time entry for you.
+
+Recurring windows use the timezone configured in Home Assistant.
+
+Overnight windows are supported. For example, a window from 22:00 to 07:00 continues through midnight into the following morning.
+
+## Notification delivery
+
+By default, Conditional Notifications can use a Home Assistant persistent notification.
+
+You can change the integration-wide defaults under:
+
+**Settings → Devices & services → Conditional Notifications → Configure**
+
+You can configure:
+
+- whether the sidebar panel is shown;
+- whether persistent notifications are used by default;
+- default `notify` targets;
+- history retention;
+- whether rendered notification titles and messages are retained in history.
+
+New notifications default to **Use my notification defaults**, so you do not need to choose the same delivery method every time.
+
+Individual notifications can instead choose their own delivery targets.
+
+Modern Home Assistant `notify` entities are supported using `notify.send_message`. Previously stored legacy `notify.*` service names remain supported for compatibility.
+
+If more than one delivery channel is configured, failure of one channel does not prevent the others from being attempted.
+
+### Test delivery
+
+The **Test** option renders and sends the notification using the real configured delivery channels.
+
+A test does **not**:
+
+- increase the notification count;
+- satisfy a trigger;
+- add a normal occurrence to the watch history.
+
+## Automatic resolution
+
+Some notifications represent a temporary problem rather than a single event.
+
+For example:
+
+> Alert me when the freezer is above -10 °C, and consider the problem resolved when it falls below -12 °C.
+
+Use `resolve_when` to define the resolution condition.
+
+If `clear_on_resolve` is enabled, Conditional Notifications can dismiss the persistent Home Assistant notification that it created for that occurrence.
+
+It cannot retract a phone push notification which has already been delivered by another provider.
 
 ## Templates
 
-Title, message, expiry content, and optional resolution content are rendered only for the relevant occurrence. They receive normal Home Assistant template helpers plus a friendly `trigger` mapping.
+Notification titles and messages can use Home Assistant templates.
 
-Common fields:
+For example:
 
-- all: `type`, `trigger_index`, `timestamp`;
-- state: `entity_id`, `friendly_name`, `from_state`, `to_state`, `attribute`;
-- numeric: `value`, `previous_value`, `above`, `below`, `attribute`;
-- event: `event_type`, `event_data`;
-- zone: `entity_id`, `zone_entity_id`, `zone`, `event`;
-- named: `trigger_id`, `event_data`.
+```yaml
+message: "{{ trigger.friendly_name }} detected motion at {{ trigger.timestamp }}."
+```
 
-The `notification` mapping contains the current structured status. Syntax is validated on save. A render failure is recorded for that occurrence and does not stop the manager.
+Conditional Notifications provides a `trigger` object containing useful information about the occurrence.
 
-## Delivery
+Common fields include:
 
-The reliable default is an integration-owned Home Assistant persistent notification. Change integration-wide defaults from **Settings → Devices & services → Conditional Notifications → Configure**; the panel also links there from Advanced options. A watch may use those defaults or explicitly choose persistent delivery and one or more searchable `notify.*` entities. Notify entities use Home Assistant's modern `notify.send_message` action. Previously stored legacy `notify.*` service names remain supported for compatibility. Provider calls are isolated: one failure cannot stop other channels or other watches. Delivery test uses the same rendering/providers but does not alter count or occurrence history.
+### All trigger types
 
-When auto-resolution is enabled, `clear_on_resolve` dismisses only the tagged persistent notification created by this integration. The integration does not claim it can retract an arbitrary delivered phone notification.
+- `type`
+- `trigger_index`
+- `timestamp`
+
+### State triggers
+
+- `entity_id`
+- `friendly_name`
+- `from_state`
+- `to_state`
+- `attribute`
+
+### Numeric-state triggers
+
+- `value`
+- `previous_value`
+- `above`
+- `below`
+- `attribute`
+
+### Event triggers
+
+- `event_type`
+- `event_data`
+
+### Zone triggers
+
+- `entity_id`
+- `zone_entity_id`
+- `zone`
+- `event`
+
+### Named triggers
+
+- `trigger_id`
+- `event_data`
+
+A `notification` object is also available with the notification's current structured status.
+
+Template syntax is checked when the notification is saved. If rendering later fails for a particular occurrence, the failure is recorded without stopping the rest of the integration.
 
 ## Home Assistant actions
 
-All actions are under `conditional_notifications` and return JSON-serializable response data:
+Conditional Notifications provides Home Assistant actions under the `conditional_notifications` domain:
 
-`create`, `get`, `list`, `update`, `delete`, `pause`, `resume`, `enable`, `disable`, `duplicate`, `test`, `trigger_now`, `fire_named_trigger`, and `clear_history`.
+- `create`
+- `get`
+- `list`
+- `update`
+- `delete`
+- `pause`
+- `resume`
+- `enable`
+- `disable`
+- `duplicate`
+- `test`
+- `trigger_now`
+- `fire_named_trigger`
+- `clear_history`
 
-Create/update accept the same bounded definition used by the panel. Existing records resolve by immutable ID, semantic key, or exact name. Ambiguous mutation requests return candidates rather than guessing. `trigger_now` is diagnostic and still passes normal timing, conditions, debounce, cooldown, and repeat checks; `test` tests delivery only.
+These are useful when another automation, script, integration, or advanced workflow needs to manage conditional notifications.
+
+Create and update use the same definition format as the sidebar panel.
+
+Existing notifications can be referenced by their ID, semantic key, or exact name. If a reference could mean more than one notification, the integration returns possible matches rather than guessing.
+
+### `test` versus `trigger_now`
+
+These are deliberately different:
+
+- `test` only tests rendering and delivery;
+- `trigger_now` submits a manual occurrence through the normal timing, condition, debounce, cooldown, and repeat checks.
 
 ## Voice and LLM tools
 
-The integration registers the **Conditional Notifications** Home Assistant LLM API. Select it in a compatible conversation agent's LLM API options. It exposes structured tools to create, list, inspect, update, pause/resume/enable/disable, duplicate, test, and delete.
+Conditional Notifications also registers a Home Assistant LLM API.
 
-The system prompt tells agents to use entity IDs and bounded definitions, never automation YAML. Tools cannot call arbitrary services or submit arbitrary Home Assistant actions. Exact IDs/semantic keys/names are preferred; if a reference is ambiguous, the tool returns safe candidates for clarification.
+If you use a compatible Home Assistant conversation agent, you can select the **Conditional Notifications** LLM API in that agent's LLM API options.
 
-## Persistence, races, and restart behavior
+It provides structured tools which can create, inspect, list, update, pause, resume, enable, disable, duplicate, test, and delete conditional notifications.
 
-Definitions, enabled/paused/active state, qualifying-match flag, counts, cooldown acceptance time, last useful status, and bounded history live in Home Assistant's versioned storage. Listeners and timers are runtime-only and reconstructed on config-entry setup.
+The LLM tools are deliberately limited to Conditional Notifications definitions. They cannot use this integration as a way to run arbitrary Home Assistant services or arbitrary action sequences.
 
-Each record has a lock and monotonically increasing revision. Editing/deleting invalidates its previous listeners and pending duration callback. Trigger acceptance and occurrence count are saved before external delivery, preventing a provider failure or crash from creating an uncontrolled retry loop. Concurrent callbacks re-check revision/status inside the lock.
+If you do not use an LLM or voice assistant, you can ignore this section completely.
 
-Minimum-duration timers are conservative after restart: elapsed pre-restart time is not assumed proven, so a restart never fabricates a duration occurrence. Exact future activation/expiry timers are reconstructed from their durable timestamps. Cooldown, limited counts, active resolution state, and no-event satisfaction survive restart.
+## What happens after a restart?
+
+Your notification definitions and important progress are stored by the integration.
+
+After Home Assistant restarts, Conditional Notifications recreates the listeners and timers it needs and continues watching.
+
+Saved information includes items such as:
+
+- whether a notification is enabled or paused;
+- accepted-notification counts;
+- limited-notification remaining counts;
+- cooldown timing;
+- active resolution state;
+- expiry state;
+- whether a qualifying occurrence has already happened for no-event handling;
+- bounded history.
+
+For minimum-duration checks, the integration takes a conservative approach after a restart: time which elapsed before the restart is not assumed to have been continuously proven. This prevents a restart from creating a false duration-based occurrence.
 
 ## Status and history
 
-Structured status includes temporal eligibility, status, pause/enable state, expiry, next cooldown eligibility, count/remaining count, last trigger, last bounded ignore reason, active occurrence, and last channel results. Meaningful history includes create/update, match, condition rejection, delivery/template failure, resolve, pause/resume, expiry, and no-event delivery.
+The detail view can show information such as:
 
-Retention is bounded by both age and maximum record count. The optional summary entity `sensor.conditional_notifications_active` exposes only small aggregate counts and the latest trigger summary; definitions are never placed in entity attributes or Recorder rows.
+- whether the notification is currently eligible to fire;
+- whether it is active, paused, disabled, or expired;
+- expiry time;
+- next cooldown eligibility;
+- notification count and remaining count;
+- last trigger;
+- most recent reason an occurrence was ignored;
+- active resolution state;
+- delivery results.
 
-## Security
+History may include events such as:
 
-Ownership uses immutable Home Assistant user IDs. Browser and LLM requests derive identity from authenticated backend context; they cannot supply their own owner. Normal users see and mutate only their records. Administrators may manage all records. Internal service calls without a user context create shared/system-owned records. Diagnostics contain aggregate counts and preferences only—never rendered private notification content, tokens, webhook IDs, or full definitions.
+- creation and editing;
+- trigger matches;
+- condition rejection;
+- notification delivery;
+- template or delivery failures;
+- resolution;
+- pause and resume;
+- expiry;
+- no-event notification delivery.
+
+History is automatically bounded by both age and a maximum record count.
+
+The optional `sensor.conditional_notifications_active` entity contains only small summary information. Conditional notification definitions are not stored in that entity's attributes or written into Recorder rows.
+
+## Multiple users and security
+
+Conditional Notifications uses Home Assistant's authenticated user identity.
+
+Normal users can see and manage only their own conditional notifications. Home Assistant administrators may manage all records.
+
+Browser and LLM requests use the authenticated Home Assistant user; they cannot simply provide a different owner ID.
+
+Actions called internally without a Home Assistant user context create shared/system-owned records.
+
+Diagnostics contain only limited aggregate information and preferences. They do not include full conditional-notification definitions, notification content, tokens, or webhook IDs.
 
 ## Troubleshooting
 
-- **It did not fire:** inspect the detail/status view for active period, condition result, cooldown, last ignored reason, and delivery result.
-- **It was already on:** state triggers require a transition. Opt into **match current state immediately** only when that is intended.
-- **A door did not satisfy `for`:** any nonmatching transition cancels the duration timer. Restarts conservatively reset unproven elapsed duration.
-- **Phone delivery failed:** verify the exact `notify.*` service in Developer Tools → Actions and keep persistent notification enabled as a fallback.
-- **Panel missing:** enable it in the integration options and reload the config entry.
-- **Templates fail:** test the expression in Developer Tools → Template and use the documented friendly trigger fields.
+### It did not notify me
+
+Open the notification's detail/status view and check:
+
+- whether it is currently active;
+- its availability or expiry;
+- condition results;
+- cooldown;
+- the last ignored reason;
+- delivery results.
+
+### The entity was already in the target state
+
+Normal state triggers wait for a **change into** the target state.
+
+If you want a newly created notification to check the entity's current state immediately, enable **Match current state immediately**.
+
+### A `for` / minimum-duration trigger did not complete
+
+Any transition which stops matching cancels the pending duration check.
+
+A Home Assistant restart also conservatively resets unproven elapsed duration.
+
+### Phone delivery failed
+
+Check the selected `notify` entity or service in **Developer Tools → Actions**.
+
+If desired, keep Home Assistant persistent notifications enabled as an additional delivery channel.
+
+### The sidebar panel is missing
+
+Go to:
+
+**Settings → Devices & services → Conditional Notifications → Configure**
+
+and make sure the panel is enabled.
+
+Reload the integration if necessary.
+
+### A template failed
+
+Test the template in **Developer Tools → Template** and use the supported `trigger` fields documented above.
+
+## Technical design notes
+
+The following details are mainly relevant to developers, contributors, or anyone interested in how the integration avoids duplicate or unsafe behaviour.
+
+Conditional Notifications stores its records in Home Assistant's versioned storage. Runtime listeners and timers are reconstructed when the config entry is loaded.
+
+Each notification record has its own lock and revision number. Editing or deleting a record invalidates its previous listeners and pending duration callback.
+
+An accepted occurrence and its count are saved before notification providers are called. This prevents a provider failure or crash from causing an uncontrolled retry loop.
+
+Concurrent callbacks re-check the current record revision and status before accepting an occurrence.
+
+The integration deliberately supports a bounded set of trigger and condition definitions rather than arbitrary action execution.
 
 ## Development
 
@@ -243,7 +637,9 @@ npm test
 npm run build
 ```
 
-CI also runs HACS and hassfest validation. The committed panel is a dependency-free ES module and the build is idempotent; CI fails if building changes it.
+CI also runs HACS and hassfest validation.
+
+The committed frontend panel is a dependency-free ES module and the build is expected to be idempotent; CI fails if rebuilding changes the committed output.
 
 ## License
 
