@@ -55,6 +55,7 @@ class NotificationStore:
                         "event": item.event,
                         "summary": item.summary,
                         "details": item.details,
+                        "owner_id": item.owner_id,
                     }
                     for item in self.history
                 ],
@@ -83,6 +84,7 @@ class NotificationStore:
                 "event": item.event,
                 "summary": item.summary,
                 "details": item.details,
+                "owner_id": item.owner_id,
             }
             for item in reversed(items)
         ]

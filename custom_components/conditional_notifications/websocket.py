@@ -150,19 +150,26 @@ async def ws_history(
 ) -> None:
     manager = _manager(hass)
     notification_id = msg.get("notification_id")
-    if notification_id:
+    if notification_id and notification_id not in manager.store.records:
         try:
             notification_id = _resolve(manager, connection, notification_id).id
+        except NotFound:
+            # Retained history for a deleted notification is addressed by its ID.
+            pass
         except Exception as err:
             _send_error(connection, msg["id"], err)
             return
-    allowed = {
-        item["id"] for item in manager.list_records(connection.user.id, connection.user.is_admin)
-    }
-    history = manager.store.history_for(notification_id)
-    connection.send_result(
-        msg["id"], [item for item in history if item["notification_id"] in allowed]
+    history = manager.history_for_user(
+        connection.user.id, connection.user.is_admin, notification_id
     )
+    if notification_id and not history:
+        current = manager.store.records.get(notification_id)
+        if current is not None and not manager.can_access(
+            current, connection.user.id, connection.user.is_admin
+        ):
+            _send_error(connection, msg["id"], NotFound("Notification history was not found"))
+            return
+    connection.send_result(msg["id"], history)
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{WS_TYPE}/preferences"})
