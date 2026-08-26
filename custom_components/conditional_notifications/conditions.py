@@ -66,10 +66,14 @@ def async_evaluate_conditions(
             after = time.fromisoformat(definition["after"]) if definition.get("after") else None
             before = time.fromisoformat(definition["before"]) if definition.get("before") else None
             passed = (after is None or local >= after) and (before is None or local < before)
-            if after and before and after > before:
+            overnight = bool(after and before and after > before)
+            if overnight:
                 passed = local >= after or local < before
             weekdays = definition.get("weekdays")
-            passed = passed and (not weekdays or WEEKDAYS[now.weekday()] in weekdays)
+            weekday_index = now.weekday()
+            if overnight and before and local < before:
+                weekday_index = (weekday_index - 1) % len(WEEKDAYS)
+            passed = passed and (not weekdays or WEEKDAYS[weekday_index] in weekdays)
             actual = local.isoformat()
         results.append({"type": kind, "passed": passed, "actual": actual})
         if not passed:
