@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from copy import deepcopy
 from datetime import timedelta
 from typing import Any
@@ -21,6 +22,8 @@ from .models import HistoryItem, NotificationRecord, duration_seconds, parse_dat
 from .storage import NotificationStore
 from .triggers import RuntimeSubscriptions, attach_trigger, schedule_task
 from .validation import DefinitionError, validate_definition
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class NotFound(HomeAssistantError):
@@ -49,8 +52,26 @@ class NotificationManager:
     async def async_initialize(self) -> None:
         await self.store.async_load()
         self._prune_history()
+        quarantined = False
         for record in list(self.store.records.values()):
+            try:
+                normalized = validate_definition(record.definition)
+                self._validate_templates(normalized)
+            except (DefinitionError, KeyError, TypeError, ValueError) as err:
+                self.store.records.pop(record.id, None)
+                self.store.invalid_records.append(record.as_dict())
+                quarantined = True
+                _LOGGER.warning(
+                    "Ignoring invalid persisted Conditional Notifications record %s: %s",
+                    record.id,
+                    err,
+                )
+                continue
+            normalized.pop("enabled", None)
+            record.definition = normalized
             await self.async_rebuild(record)
+        if quarantined:
+            await self.store.async_save()
 
     async def async_shutdown(self) -> None:
         for runtime in self._runtimes.values():
@@ -114,7 +135,14 @@ class NotificationManager:
             )
 
     def _validate_templates(self, definition: dict[str, Any]) -> None:
-        for field in ("title", "message", "expiry_title", "expiry_message", "resolved_message"):
+        for field in (
+            "title",
+            "message",
+            "expiry_title",
+            "expiry_message",
+            "resolved_title",
+            "resolved_message",
+        ):
             if source := definition.get(field):
                 try:
                     Template(str(source), self.hass).ensure_valid()
@@ -201,7 +229,8 @@ class NotificationManager:
                 or term in (r.description or "").casefold()
                 or term in (r.semantic_key or "").casefold()
                 or any(
-                    term in str(t.get("entity_id", "")).casefold() for t in r.definition["triggers"]
+                    term in str(t.get("entity_id", "")).casefold()
+                    for t in r.definition.get("triggers", [])
                 )
             ]
         return [
@@ -349,6 +378,9 @@ class NotificationManager:
     async def async_rebuild(
         self, record: NotificationRecord, *, allow_current: bool = False
     ) -> None:
+        current_record = self.store.records.get(record.id)
+        if current_record is not record or current_record.revision != record.revision:
+            return
         if old := self._runtimes.pop(record.id, None):
             old.cancel()
         runtime = RuntimeSubscriptions(self.hass, record.id, record.revision)
@@ -443,7 +475,7 @@ class NotificationManager:
             raw = state_value(current, definition.get("attribute"))
             try:
                 actual = float(raw)
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 actual = None
             matched = numeric_matches(actual, definition)
         else:
@@ -494,6 +526,11 @@ class NotificationManager:
                 )
                 return
 
+    async def _async_persist_ignored(self, record: NotificationRecord, reason: str) -> None:
+        record.last_ignored_reason = reason
+        await self.store.async_save()
+        self._broadcast("ignored", record, record.id)
+
     async def _async_trigger(self, record_id: str, revision: int, trigger: dict[str, Any]) -> None:
         record = self.store.records.get(record_id)
         if not record:
@@ -507,17 +544,19 @@ class NotificationManager:
                 "disabled",
                 "resolved",
             }:
-                record.last_ignored_reason = "Outside the active period"
+                await self._async_persist_ignored(record, "Outside the active period")
                 return
             if record.active_occurrence:
-                record.last_ignored_reason = "Waiting for the active occurrence to resolve"
+                await self._async_persist_ignored(
+                    record, "Waiting for the active occurrence to resolve"
+                )
                 return
             if record.definition["repeat_policy"] == "limited" and record.remaining() == 0:
                 return
             debounce = duration_seconds(record.definition.get("debounce"))
             last_trigger_at = parse_datetime(record.last_trigger_at)
             if debounce and last_trigger_at and now < last_trigger_at + timedelta(seconds=debounce):
-                record.last_ignored_reason = "Ignored by debounce"
+                await self._async_persist_ignored(record, "Ignored by debounce")
                 return
             record.last_trigger_at = now.isoformat()
             record.last_trigger = trigger
@@ -528,7 +567,7 @@ class NotificationManager:
                 and last_accepted_at
                 and now < last_accepted_at + timedelta(seconds=cooldown)
             ):
-                record.last_ignored_reason = "Cooldown is still active"
+                await self._async_persist_ignored(record, "Cooldown is still active")
                 return
             conditions_passed, condition_results = async_evaluate_conditions(
                 self.hass, record.definition.get("conditions", []), now
@@ -544,7 +583,8 @@ class NotificationManager:
                 await self.store.async_save()
                 self._broadcast("ignored", record, record.id)
                 return
-            record.last_accepted_at = now.isoformat()
+            accepted_at = now.isoformat()
+            record.last_accepted_at = accepted_at
             record.qualifying_match_seen = True
             record.notification_count += 1
             record.last_ignored_reason = None
@@ -562,7 +602,8 @@ class NotificationManager:
                 f"Qualifying occurrence {occurrence}",
                 {"trigger": trigger, "conditions": condition_results, "occurrence": occurrence},
             )
-            # Acceptance and count are durable before provider side effects.
+            # Reserve the occurrence durably before provider side effects. A total
+            # delivery/template failure rolls the count and completion state back.
             await self.store.async_save()
         try:
             title = await async_render(self.hass, record.definition["title"], trigger, record)
@@ -570,11 +611,10 @@ class NotificationManager:
             results = await async_deliver(
                 self.hass, record, title, message, self.options["delivery"]
             )
-            event = "notification_sent" if any(r["success"] for r in results) else "delivery_failed"
+            delivered = any(r["success"] for r in results)
+            event = "notification_sent" if delivered else "delivery_failed"
             summary = (
-                "Notification delivery completed"
-                if event == "notification_sent"
-                else "All delivery channels failed"
+                "Notification delivery completed" if delivered else "All delivery channels failed"
             )
             details = {
                 "trigger": trigger,
@@ -585,6 +625,7 @@ class NotificationManager:
             }
         except (TemplateError, ValueError) as err:
             results = [{"channel": "template", "success": False, "error": str(err)[:300]}]
+            delivered = False
             event, summary = "template_error", "Notification template could not be rendered"
             details = {"trigger": trigger, "error": str(err)[:300], "occurrence": occurrence}
         async with self._lock(record_id):
@@ -592,13 +633,28 @@ class NotificationManager:
             if not current or current.revision != revision:
                 return
             current.last_delivery = results
-            if not current.active_occurrence and current.enabled:
+            if not delivered:
+                current.notification_count = max(0, current.notification_count - 1)
+                if current.last_accepted_at == accepted_at:
+                    current.last_accepted_at = None
+                if current.active_occurrence:
+                    current.active_occurrence = False
+                if completed:
+                    current.enabled = True
+                current.status = (
+                    "paused"
+                    if current.paused
+                    else ("watching" if current.enabled else "disabled")
+                )
+            elif not current.active_occurrence and current.enabled:
                 current.status = "watching"
             self._add_history(current, event, summary, details)
             await self.store.async_save()
-        await self._async_resolve_if_current(record)
-        await self.async_rebuild(record)
-        self._event("triggered", record)
+        await self._async_resolve_if_current(current)
+        await self.async_rebuild(current)
+        latest = self.store.records.get(record_id)
+        if latest is current and latest.revision == revision:
+            self._event("triggered", latest)
 
     async def _async_resolve(self, record_id: str, revision: int, trigger: dict[str, Any]) -> None:
         record = self.store.records.get(record_id)
@@ -620,11 +676,17 @@ class NotificationManager:
             async_clear(self.hass, record.id)
         if source := record.definition.get("resolved_message"):
             try:
+                title = await async_render(
+                    self.hass,
+                    record.definition.get("resolved_title", f"Resolved: {record.name}"),
+                    trigger,
+                    record,
+                )
                 message = await async_render(self.hass, source, trigger, record)
                 results = await async_deliver(
                     self.hass,
                     record,
-                    record.definition.get("resolved_title", f"Resolved: {record.name}"),
+                    title,
                     message,
                     self.options["delivery"],
                 )
@@ -652,8 +714,13 @@ class NotificationManager:
                         {"phase": "resolution", "error": str(err)[:300]},
                     )
                     await self.store.async_save()
-        await self.async_rebuild(record)
-        self._event("resolved", record)
+        current = self.store.records.get(record_id)
+        if not current or current.revision != revision:
+            return
+        await self.async_rebuild(current)
+        latest = self.store.records.get(record_id)
+        if latest is current and latest.revision == revision:
+            self._event("resolved", latest)
 
     async def _async_expire(self, record_id: str, revision: int) -> None:
         record = self.store.records.get(record_id)
@@ -692,9 +759,16 @@ class NotificationManager:
                     self.hass, record, title, message, self.options["delivery"]
                 )
                 async with self._lock(record_id):
+                    current = self.store.records.get(record_id)
+                    if (
+                        not current
+                        or current.revision != revision
+                        or current.status != "expired"
+                    ):
+                        return
                     success = any(result["success"] for result in results)
                     self._add_history(
-                        record,
+                        current,
                         "expiry_notification" if success else "delivery_failed",
                         "No-event expiry notification sent"
                         if success
@@ -704,14 +778,23 @@ class NotificationManager:
                     await self.store.async_save()
             except (TemplateError, ValueError) as err:
                 async with self._lock(record_id):
+                    current = self.store.records.get(record_id)
+                    if (
+                        not current
+                        or current.revision != revision
+                        or current.status != "expired"
+                    ):
+                        return
                     self._add_history(
-                        record,
+                        current,
                         "template_error",
                         "Expiry template failed",
                         {"error": str(err)[:300]},
                     )
                     await self.store.async_save()
-        self._event("expired", record)
+        current = self.store.records.get(record_id)
+        if current and current.revision == revision and current.status == "expired":
+            self._event("expired", current)
 
     async def async_test(self, record: NotificationRecord) -> dict[str, Any]:
         trigger = record.last_trigger or {
