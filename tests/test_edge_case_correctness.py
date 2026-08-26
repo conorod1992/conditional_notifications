@@ -311,7 +311,7 @@ async def test_deleted_record_gets_no_late_expiry_completion(manager, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_stale_or_deleted_record_cannot_be_rebuilt(monkeypatch) -> None:
+async def test_stale_or_deleted_record_cannot_be_rebuilt() -> None:
     instance = object.__new__(NotificationManager)
     instance.hass = FakeHass()
     instance.options = {**DEFAULT_OPTIONS}
@@ -356,5 +356,5 @@ async def test_malformed_top_level_record_does_not_abort_storage_load() -> None:
 
     await store.async_load()
 
-    assert "broken" in store.records
-    assert store.invalid_records == []
+    assert store.records == {}
+    assert store.invalid_records == [{"id": "broken"}]
