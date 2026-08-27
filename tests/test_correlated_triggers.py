@@ -179,4 +179,6 @@ async def test_match_current_state_seeds_every_correlated_state_trigger():
     await LifecycleNotificationManager._async_match_current(instance, item)
 
     assert instance._async_trigger.await_count == 2
-    assert [call.args[2]["trigger_index"] for call in instance._async_trigger.await_args_list] == [0, 1]
+    assert [
+        call.args[2]["trigger_index"] for call in instance._async_trigger.await_args_list
+    ] == [0, 1]
