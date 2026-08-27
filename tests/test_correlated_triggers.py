@@ -160,7 +160,7 @@ async def test_manual_trigger_bypasses_correlation(monkeypatch):
 
     await instance._async_trigger(item.id, item.revision, manual)
 
-    base_trigger.assert_awaited_once_with(instance, item.id, item.revision, manual)
+    base_trigger.assert_awaited_once_with(item.id, item.revision, manual)
 
 
 @pytest.mark.asyncio
