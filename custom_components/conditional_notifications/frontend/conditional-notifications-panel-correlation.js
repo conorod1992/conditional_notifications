@@ -11,7 +11,7 @@ const originalPreview = panel.preview;
 panel.preview = function(definition) {
   const preview = originalPreview.call(this, definition);
   if (definition.match === "all_within") {
-    const triggers = definition.triggers.map(trigger => this.triggerSummary(trigger)).join("; then ");
+    const triggers = definition.triggers.map(trigger => this.triggerSummary(trigger)).join("; and ");
     preview.watching = `All configured triggers within ${this.duration(definition.match_window || 0)}: ${triggers}`;
   }
   return preview;
@@ -25,6 +25,7 @@ panel.hydrateEditor = function() {
   const anchor = this.shadowRoot.querySelector(".preview");
   if (!anchor) return;
   const correlated = definition.match === "all_within";
+  const canCorrelate = definition.triggers.length >= 2;
   anchor.insertAdjacentHTML(
     "beforebegin",
     `<section class="subcard correlation-card">
@@ -32,9 +33,9 @@ panel.hydrateEditor = function() {
       <label>Match mode
         <select id="trigger-match-mode">
           <option value="any"${correlated ? "" : " selected"}>Any trigger can notify</option>
-          <option value="all_within"${correlated ? " selected" : ""}>All triggers within a time window</option>
+          <option value="all_within"${correlated ? " selected" : ""}${canCorrelate ? "" : " disabled"}>All triggers within a time window</option>
         </select>
-        <small>Use correlation when several separate signals together make an event meaningful.</small>
+        <small>${canCorrelate ? "Use correlation when several separate signals together make an event meaningful. Trigger order does not matter." : "Add a second trigger to enable correlated matching."}</small>
       </label>
       ${correlated ? `<label>Correlation window (seconds)
         <input type="number" min="1" max="86400" data-path="match_window" value="${definition.match_window || 60}">
