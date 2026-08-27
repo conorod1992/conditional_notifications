@@ -27,9 +27,7 @@ def test_websocket_resolution_uses_authenticated_connection_identity() -> None:
 @pytest.mark.asyncio
 async def test_service_identity_preserves_internal_and_user_boundaries() -> None:
     hass = SimpleNamespace(
-        auth=SimpleNamespace(
-            async_get_user=AsyncMock(return_value=SimpleNamespace(is_admin=False))
-        )
+        auth=SimpleNamespace(async_get_user=AsyncMock(return_value=SimpleNamespace(is_admin=False)))
     )
 
     internal = await service_identity(hass, SimpleNamespace(context=SimpleNamespace(user_id=None)))
@@ -72,9 +70,7 @@ async def test_authenticated_llm_create_uses_user_as_owner() -> None:
     manager = SimpleNamespace(async_create=AsyncMock(return_value={"id": "record-1"}))
     tool = CreateTool(manager)
     hass = SimpleNamespace(
-        auth=SimpleNamespace(
-            async_get_user=AsyncMock(return_value=SimpleNamespace(is_admin=False))
-        )
+        auth=SimpleNamespace(async_get_user=AsyncMock(return_value=SimpleNamespace(is_admin=False)))
     )
     llm_context = SimpleNamespace(context=SimpleNamespace(user_id="user-1"))
     definition = {"name": "owned record"}
