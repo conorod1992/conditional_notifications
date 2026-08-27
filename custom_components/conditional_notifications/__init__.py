@@ -17,6 +17,9 @@ from .websocket import async_register_websocket
 
 type ConditionalNotificationsConfigEntry = ConfigEntry[NotificationManager]
 
+_BASE_PANEL_URL = "/conditional_notifications_panel_base.js"
+_PANEL_ASSET_REVISION = "status1"
+
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConditionalNotificationsConfigEntry
@@ -32,9 +35,14 @@ async def async_setup_entry(
     entry.async_on_unload(async_register_llm_api(hass, manager))
 
     if manager.options.get("panel_enabled", True):
-        panel_file = Path(__file__).parent / "frontend" / "conditional-notifications-panel.js"
+        panel_dir = Path(__file__).parent / "frontend"
+        panel_file = panel_dir / "conditional-notifications-panel-status.js"
+        base_panel_file = panel_dir / "conditional-notifications-panel.js"
         await hass.http.async_register_static_paths(
-            [StaticPathConfig(PANEL_URL, str(panel_file), cache_headers=True)]
+            [
+                StaticPathConfig(PANEL_URL, str(panel_file), cache_headers=True),
+                StaticPathConfig(_BASE_PANEL_URL, str(base_panel_file), cache_headers=True),
+            ]
         )
         frontend.async_register_built_in_panel(
             hass,
@@ -45,7 +53,7 @@ async def async_setup_entry(
             config={
                 "_panel_custom": {
                     "name": "conditional-notifications-panel",
-                    "module_url": f"{PANEL_URL}?v={VERSION}",
+                    "module_url": f"{PANEL_URL}?v={VERSION}-{_PANEL_ASSET_REVISION}",
                     "embed_iframe": False,
                     "trust_external": False,
                     "handle_safe_area": True,
