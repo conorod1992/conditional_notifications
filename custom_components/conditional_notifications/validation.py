@@ -143,6 +143,7 @@ def validate_definition(data: dict[str, Any], *, partial: bool = False) -> dict[
         "description",
         "triggers",
         "match",
+        "match_window",
         "conditions",
         "title",
         "message",
@@ -182,9 +183,24 @@ def validate_definition(data: dict[str, Any], *, partial: bool = False) -> dict[
         result["triggers"] = [
             _validate_trigger(item, f"triggers.{index}") for index, item in enumerate(triggers)
         ]
-    if result.get("match", "any") != "any":
-        _error("match", "v1 supports only 'any'")
-    result["match"] = "any"
+    match = result.get("match", "any")
+    if match not in {"any", "all_within"}:
+        _error("match", "must be any or all_within")
+    result["match"] = match
+    if match == "all_within":
+        if len(result.get("triggers", [])) < 2:
+            _error("match", "all_within requires at least two triggers")
+        try:
+            match_window = duration_seconds(result.get("match_window"))
+        except (TypeError, ValueError) as err:
+            _error("match_window", str(err))
+        if match_window <= 0:
+            _error("match_window", "is required and must be greater than zero")
+        if match_window > 86400:
+            _error("match_window", "must be 24 hours or less")
+        result["match_window"] = match_window
+    else:
+        result.pop("match_window", None)
     if "conditions" in result:
         if not isinstance(result["conditions"], list) or len(result["conditions"]) > 20:
             _error("conditions", "must be a list with at most 20 items")
