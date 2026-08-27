@@ -68,6 +68,7 @@ def async_evaluate_conditions(
             passed = (after is None or local >= after) and (before is None or local < before)
             overnight = bool(after and before and after > before)
             if overnight:
+                assert after is not None and before is not None
                 passed = local >= after or local < before
             weekdays = definition.get("weekdays")
             weekday_index = now.weekday()
