@@ -18,6 +18,7 @@ from .websocket import async_register_websocket
 type ConditionalNotificationsConfigEntry = ConfigEntry[NotificationManager]
 
 _BASE_PANEL_URL = "/conditional_notifications_panel_base.js"
+_PANEL_ASSET_REVISION = "status1"
 
 
 async def async_setup_entry(
@@ -52,7 +53,7 @@ async def async_setup_entry(
             config={
                 "_panel_custom": {
                     "name": "conditional-notifications-panel",
-                    "module_url": f"{PANEL_URL}?v={VERSION}",
+                    "module_url": f"{PANEL_URL}?v={VERSION}-{_PANEL_ASSET_REVISION}",
                     "embed_iframe": False,
                     "trust_external": False,
                     "handle_safe_area": True,
