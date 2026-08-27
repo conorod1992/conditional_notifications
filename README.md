@@ -27,7 +27,7 @@ A conditional notification can watch for:
 
 You can also add:
 
-- multiple triggers — notify when **any** of them happens;
+- multiple triggers — notify when **any** happens, or require **all** of them within a chosen time window;
 - conditions — only notify if **all** conditions are true;
 - start and expiry times;
 - recurring time windows;
@@ -150,7 +150,27 @@ message: "{{ trigger.friendly_name }} detected motion."
 repeat_policy: once
 ```
 
-With multiple triggers, **any one** of them can satisfy the notification.
+With `match: any`, **any one** of the triggers can satisfy the notification.
+
+### Notify me when several signals happen close together
+
+```yaml
+name: Front door activity
+match: all_within
+match_window: 30
+triggers:
+  - type: state
+    entity_id: binary_sensor.front_door
+    to: "on"
+  - type: state
+    entity_id: binary_sensor.hall_motion
+    to: "on"
+title: Front door activity
+message: The door and hall motion were both detected within 30 seconds.
+repeat_policy: every
+```
+
+With `match: all_within`, every configured trigger must occur within the chosen window. The order does not matter. If one signal becomes too old before the others occur, it is discarded from the current correlation window.
 
 ### Notify me when the front door opens, but only while I am away
 
@@ -455,6 +475,8 @@ Common fields include:
 - `trigger_id`
 - `event_data`
 
+For a completed `all_within` correlation, the trigger object also contains `matched_triggers` with the individual trigger contexts and `correlation` with the configured window and first/last match times.
+
 A `notification` object is also available with the notification's current structured status.
 
 Template syntax is checked when the notification is saved. If rendering later fails for a particular occurrence, the failure is recorded without stopping the rest of the integration.
@@ -521,6 +543,8 @@ Saved information includes items such as:
 - bounded history.
 
 For minimum-duration checks, the integration takes a conservative approach after a restart: time which elapsed before the restart is not assumed to have been continuously proven. This prevents a restart from creating a false duration-based occurrence.
+
+Partial `all_within` correlations are also deliberately cleared on restart or listener rebuild. A complete fresh set of matching triggers must occur after listeners are active again, so events on opposite sides of downtime are never joined together.
 
 ## Status and history
 
