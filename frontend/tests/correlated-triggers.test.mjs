@@ -34,14 +34,32 @@ test("preview explains correlated matching", () => {
   assert.match(preview.watching,/Hall Motion/);
 });
 
-test("correlation editor renders mode and window controls", () => {
+test("preview summarizes bounded Companion App options", () => {
+  const context = {
+    triggerSummary:panel.triggerSummary,
+    conditionSummary:panel.conditionSummary,
+    duration:panel.duration,
+  };
+  const value = structuredClone(definition);
+  value.delivery.companion = {
+    url:"/lovelace/security",
+    actions:[{title:"Acknowledge",action:"ACK_ALERT"}],
+  };
+  const preview = panel.preview.call(context, value);
+  assert.match(preview.delivery,/tap opens \/lovelace\/security/);
+  assert.match(preview.delivery,/1 action button/);
+});
+
+test("editor renders correlation and Companion App controls", () => {
   let inserted = "";
-  const anchor = {insertAdjacentHTML: (_where, markup) => { inserted = markup; }};
+  const anchor = {insertAdjacentHTML: (_where, markup) => { inserted += markup; }};
   const context = {
     editor:{definition:structuredClone(definition)},
+    errors:{},
     shadowRoot:{
       querySelector(selector) {
         if (selector === "#trigger-match-mode") return null;
+        if (selector === "#companion-options") return null;
         if (selector === ".preview") return anchor;
         if (selector === '[data-path="delivery.use_defaults"]') return null;
         if (selector === "#notify-services") return null;
@@ -54,4 +72,7 @@ test("correlation editor renders mode and window controls", () => {
   assert.match(inserted,/All triggers within a time window/);
   assert.match(inserted,/data-path="match_window"/);
   assert.match(inserted,/value="30"/);
+  assert.match(inserted,/Companion App options/);
+  assert.match(inserted,/id="companion-url"/);
+  assert.match(inserted,/Add action button/);
 });
