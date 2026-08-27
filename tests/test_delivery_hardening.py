@@ -86,7 +86,9 @@ async def test_notify_payload_contains_only_bounded_companion_data() -> None:
     "companion",
     [
         {"url": "javascript:alert(1)"},
+        {"url": "//evil.example/path"},
         {"actions": [{"title": "Bad", "uri": "intent://unsafe"}]},
+        {"actions": [{"title": "Bad", "uri": "//evil.example/path"}]},
         {"actions": [{"title": "Bad", "action": "BAD ACTION"}]},
         {"actions": [{"title": "Reserved", "action": "URI"}]},
         {"actions": [{"title": str(index), "action": f"ACTION_{index}"} for index in range(4)]},
