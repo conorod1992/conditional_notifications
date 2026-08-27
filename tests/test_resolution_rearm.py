@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import timedelta
 from unittest.mock import AsyncMock, Mock
 
-import pytest
 from homeassistant.util import dt as dt_util
+import pytest
 
 from custom_components.conditional_notifications.const import DEFAULT_OPTIONS
 from custom_components.conditional_notifications.lifecycle import LifecycleNotificationManager
