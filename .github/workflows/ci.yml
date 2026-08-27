@@ -13,7 +13,10 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: "3.14", cache: pip}
       - run: pip install -r requirements_test.txt
-      - run: ruff format --check .
+      - run: |
+          ruff format .
+          git diff -- custom_components/conditional_notifications/manager.py custom_components/conditional_notifications/storage.py tests/test_edge_case_correctness.py
+          exit 1
       - run: ruff check .
       - run: mypy custom_components/conditional_notifications
       - run: pytest --cov=custom_components.conditional_notifications --cov-report=term-missing
