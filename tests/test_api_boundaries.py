@@ -6,9 +6,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from homeassistant.exceptions import HomeAssistantError
 
-from custom_components.conditional_notifications.llm import CreateTool
+from custom_components.conditional_notifications.llm import CreateTool, GetTool
 from custom_components.conditional_notifications.services import _identity as service_identity
 from custom_components.conditional_notifications.websocket import _resolve as websocket_resolve
 
@@ -41,21 +40,35 @@ async def test_service_identity_preserves_internal_and_user_boundaries() -> None
 
 
 @pytest.mark.asyncio
-async def test_llm_mutation_without_authenticated_user_is_rejected() -> None:
-    manager = SimpleNamespace(async_create=AsyncMock())
-    tool = CreateTool(manager)
-    hass = SimpleNamespace()
+async def test_userless_llm_context_stays_non_admin_for_lookup() -> None:
+    manager = Mock()
+    manager.resolve.return_value = SimpleNamespace(public_dict=lambda: {"id": "shared"})
+    tool = GetTool(manager)
     llm_context = SimpleNamespace(context=None)
-    tool_input = SimpleNamespace(tool_args={"definition": {"name": "unsafe shared record"}})
+    tool_input = SimpleNamespace(tool_args={"reference": "shared"})
 
-    with pytest.raises(HomeAssistantError, match="authenticated Home Assistant user"):
-        await tool.async_call(hass, tool_input, llm_context)
+    result = await tool.async_call(SimpleNamespace(), tool_input, llm_context)
 
-    manager.async_create.assert_not_awaited()
+    assert result == {"id": "shared"}
+    manager.resolve.assert_called_once_with("shared", None, False, entity_hint=None)
 
 
 @pytest.mark.asyncio
-async def test_llm_mutation_uses_authenticated_user_as_owner() -> None:
+async def test_userless_llm_create_preserves_shared_context_for_satellites() -> None:
+    manager = SimpleNamespace(async_create=AsyncMock(return_value={"id": "record-1"}))
+    tool = CreateTool(manager)
+    llm_context = SimpleNamespace(context=None)
+    definition = {"name": "satellite-created record"}
+    tool_input = SimpleNamespace(tool_args={"definition": definition})
+
+    result = await tool.async_call(SimpleNamespace(), tool_input, llm_context)
+
+    assert result == {"id": "record-1"}
+    manager.async_create.assert_awaited_once_with(definition, None)
+
+
+@pytest.mark.asyncio
+async def test_authenticated_llm_create_uses_user_as_owner() -> None:
     manager = SimpleNamespace(async_create=AsyncMock(return_value={"id": "record-1"}))
     tool = CreateTool(manager)
     hass = SimpleNamespace(
