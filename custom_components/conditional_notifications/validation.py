@@ -138,7 +138,7 @@ def _companion_uri(value: Any, path: str) -> str:
     uri = str(value or "").strip()
     if not uri or len(uri) > 500:
         _error(path, "must be between 1 and 500 characters")
-    if uri.startswith("/"):
+    if uri.startswith("/") and not uri.startswith("//"):
         return uri
     parsed = urlparse(uri)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
