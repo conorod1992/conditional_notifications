@@ -6,7 +6,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-
 from custom_components.conditional_notifications.llm import CreateTool, GetTool
 from custom_components.conditional_notifications.services import _identity as service_identity
 from custom_components.conditional_notifications.websocket import _resolve as websocket_resolve
