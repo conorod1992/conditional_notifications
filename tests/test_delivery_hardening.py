@@ -7,7 +7,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 from custom_components.conditional_notifications.delivery import async_deliver, merge_delivery
-from custom_components.conditional_notifications.validation import DefinitionError, validate_definition
+from custom_components.conditional_notifications.validation import (
+    DefinitionError,
+    validate_definition,
+)
 
 
 def definition(delivery: dict) -> dict:
