@@ -9,9 +9,7 @@ import pytest
 from homeassistant.util import dt as dt_util
 
 from custom_components.conditional_notifications.const import DEFAULT_OPTIONS
-from custom_components.conditional_notifications.lifecycle import (
-    LifecycleNotificationManager,
-)
+from custom_components.conditional_notifications.lifecycle import LifecycleNotificationManager
 from custom_components.conditional_notifications.models import NotificationRecord
 from custom_components.conditional_notifications.validation import (
     DefinitionError,
