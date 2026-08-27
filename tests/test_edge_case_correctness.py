@@ -12,7 +12,10 @@ from custom_components.conditional_notifications.const import DEFAULT_OPTIONS
 from custom_components.conditional_notifications.manager import NotificationManager
 from custom_components.conditional_notifications.models import NotificationRecord
 from custom_components.conditional_notifications.storage import NotificationStore
-from custom_components.conditional_notifications.validation import DefinitionError, validate_definition
+from custom_components.conditional_notifications.validation import (
+    DefinitionError,
+    validate_definition,
+)
 
 
 class FakeStore:
@@ -237,7 +240,9 @@ def test_resolved_title_template_is_validated(manager) -> None:
 
 
 @pytest.mark.asyncio
-async def test_deleted_record_is_not_rebuilt_after_resolution_delivery(manager, monkeypatch) -> None:
+async def test_deleted_record_is_not_rebuilt_after_resolution_delivery(
+    manager, monkeypatch
+) -> None:
     started = asyncio.Event()
     finish = asyncio.Event()
 
@@ -267,7 +272,9 @@ async def test_deleted_record_is_not_rebuilt_after_resolution_delivery(manager, 
     record.notification_count = 1
     manager.store.records[record.id] = record
 
-    task = asyncio.create_task(manager._async_resolve(record.id, record.revision, {"type": "state"}))
+    task = asyncio.create_task(
+        manager._async_resolve(record.id, record.revision, {"type": "state"})
+    )
     await started.wait()
     await manager.async_delete(record)
     finish.set()

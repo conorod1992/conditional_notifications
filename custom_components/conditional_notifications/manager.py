@@ -642,9 +642,7 @@ class NotificationManager:
                 if completed:
                     current.enabled = True
                 current.status = (
-                    "paused"
-                    if current.paused
-                    else ("watching" if current.enabled else "disabled")
+                    "paused" if current.paused else ("watching" if current.enabled else "disabled")
                 )
             elif not current.active_occurrence and current.enabled:
                 current.status = "watching"
@@ -760,11 +758,7 @@ class NotificationManager:
                 )
                 async with self._lock(record_id):
                     current = self.store.records.get(record_id)
-                    if (
-                        not current
-                        or current.revision != revision
-                        or current.status != "expired"
-                    ):
+                    if not current or current.revision != revision or current.status != "expired":
                         return
                     success = any(result["success"] for result in results)
                     self._add_history(
@@ -779,11 +773,7 @@ class NotificationManager:
             except (TemplateError, ValueError) as err:
                 async with self._lock(record_id):
                     current = self.store.records.get(record_id)
-                    if (
-                        not current
-                        or current.revision != revision
-                        or current.status != "expired"
-                    ):
+                    if not current or current.revision != revision or current.status != "expired":
                         return
                     self._add_history(
                         current,

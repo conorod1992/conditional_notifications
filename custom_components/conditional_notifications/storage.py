@@ -63,7 +63,9 @@ class NotificationStore:
                     raise ValueError("history item must be an object")
                 self.history.append(HistoryItem(**item))
             except (TypeError, ValueError) as err:
-                _LOGGER.warning("Ignoring malformed Conditional Notifications history item: %s", err)
+                _LOGGER.warning(
+                    "Ignoring malformed Conditional Notifications history item: %s", err
+                )
 
     async def async_save(self) -> None:
         await self._store.async_save(
