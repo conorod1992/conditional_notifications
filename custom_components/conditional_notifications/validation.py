@@ -122,6 +122,15 @@ def _validate_condition(condition: dict[str, Any], path: str) -> dict[str, Any]:
             _error(path, "time values must use HH:MM or HH:MM:SS")
         if "after" not in result and "before" not in result:
             _error(path, "a time condition needs after or before")
+        if "weekdays" in result:
+            weekdays = result["weekdays"]
+            if (
+                not isinstance(weekdays, list)
+                or not weekdays
+                or any(day not in WEEKDAYS for day in weekdays)
+            ):
+                _error(f"{path}.weekdays", "must be a non-empty list of valid weekdays")
+            result["weekdays"] = list(dict.fromkeys(weekdays))
     return result
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -10,6 +11,8 @@ from homeassistant.helpers.storage import Store
 
 from .const import STORAGE_KEY, STORAGE_VERSION
 from .models import HistoryItem, NotificationRecord, parse_datetime
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class _VersionedStore(Store[dict[str, Any]]):
@@ -34,19 +37,41 @@ class NotificationStore:
             hass, STORAGE_VERSION, STORAGE_KEY, atomic_writes=True
         )
         self.records: dict[str, NotificationRecord] = {}
+        self.invalid_records: list[dict[str, Any]] = []
         self.history: list[HistoryItem] = []
 
     async def async_load(self) -> None:
         data = await self._store.async_load() or {}
-        self.records = {
-            item["id"]: NotificationRecord.from_dict(item) for item in data.get("records", [])
-        }
-        self.history = [HistoryItem(**item) for item in data.get("history", [])]
+        self.records = {}
+        self.invalid_records = []
+        for item in data.get("records", []):
+            try:
+                if not isinstance(item, dict) or not item.get("id"):
+                    raise ValueError("record must be an object with an id")
+                record = NotificationRecord.from_dict(item)
+            except (TypeError, ValueError) as err:
+                if isinstance(item, dict):
+                    self.invalid_records.append(item)
+                _LOGGER.warning("Ignoring malformed Conditional Notifications record: %s", err)
+                continue
+            self.records[record.id] = record
+
+        self.history = []
+        for item in data.get("history", []):
+            try:
+                if not isinstance(item, dict):
+                    raise ValueError("history item must be an object")
+                self.history.append(HistoryItem(**item))
+            except (TypeError, ValueError) as err:
+                _LOGGER.warning(
+                    "Ignoring malformed Conditional Notifications history item: %s", err
+                )
 
     async def async_save(self) -> None:
         await self._store.async_save(
             {
-                "records": [record.as_dict() for record in self.records.values()],
+                "records": [record.as_dict() for record in self.records.values()]
+                + self.invalid_records,
                 "history": [
                     {
                         "id": item.id,
