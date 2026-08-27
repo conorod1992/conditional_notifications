@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from datetime import time
 from typing import Any, Never
+from urllib.parse import urlparse
 
 from .const import WEEKDAYS
 from .models import duration_seconds, parse_datetime
@@ -129,6 +131,65 @@ def _validate_condition(condition: dict[str, Any], path: str) -> dict[str, Any]:
             ):
                 _error(f"{path}.weekdays", "must be a non-empty list of valid weekdays")
             result["weekdays"] = list(dict.fromkeys(weekdays))
+    return result
+
+
+def _companion_uri(value: Any, path: str) -> str:
+    uri = str(value or "").strip()
+    if not uri or len(uri) > 500:
+        _error(path, "must be between 1 and 500 characters")
+    if uri.startswith("/") and not uri.startswith("//"):
+        return uri
+    parsed = urlparse(uri)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        _error(path, "must be a Home Assistant path or an http/https URL")
+    return uri
+
+
+def _validate_companion(data: Any) -> dict[str, Any]:
+    path = "delivery.companion"
+    if not isinstance(data, dict):
+        _error(path, "must be an object")
+    result = deepcopy(data)
+    if extra := set(result) - {"url", "actions"}:
+        _error(path, f"contains unsupported fields: {', '.join(sorted(extra))}")
+    if "url" in result:
+        result["url"] = _companion_uri(result["url"], f"{path}.url")
+    if "actions" in result:
+        actions = result["actions"]
+        if not isinstance(actions, list) or len(actions) > 3:
+            _error(f"{path}.actions", "must be a list with at most 3 buttons")
+        normalized: list[dict[str, str]] = []
+        for index, action in enumerate(actions):
+            item_path = f"{path}.actions.{index}"
+            if not isinstance(action, dict):
+                _error(item_path, "must be an object")
+            if extra := set(action) - {"title", "action", "uri"}:
+                _error(item_path, f"contains unsupported fields: {', '.join(sorted(extra))}")
+            title = str(action.get("title", "")).strip()
+            if not title or len(title) > 50:
+                _error(f"{item_path}.title", "must be between 1 and 50 characters")
+            has_action = bool(action.get("action"))
+            has_uri = bool(action.get("uri"))
+            if has_action == has_uri:
+                _error(item_path, "must contain exactly one of action or uri")
+            normalized_item = {"title": title}
+            if has_uri:
+                normalized_item["uri"] = _companion_uri(action["uri"], f"{item_path}.uri")
+            else:
+                action_id = str(action["action"]).strip()
+                if not re.fullmatch(r"[A-Za-z0-9_:-]{1,64}", action_id):
+                    _error(
+                        f"{item_path}.action",
+                        "must use 1-64 letters, numbers, underscores, colons, or hyphens",
+                    )
+                if action_id in {"URI", "REPLY"}:
+                    _error(f"{item_path}.action", "uses a reserved Companion App action ID")
+                normalized_item["action"] = action_id
+            normalized.append(normalized_item)
+        result["actions"] = normalized
+    if not result.get("url") and not result.get("actions"):
+        _error(path, "needs a tap URL/path or at least one action button")
     return result
 
 
@@ -263,7 +324,13 @@ def validate_definition(data: dict[str, Any], *, partial: bool = False) -> dict[
     delivery = result.setdefault("delivery", {"use_defaults": True})
     if not isinstance(delivery, dict):
         _error("delivery", "must be an object")
-    allowed = {"use_defaults", "persistent_notification", "notify_entities", "notify_services"}
+    allowed = {
+        "use_defaults",
+        "persistent_notification",
+        "notify_entities",
+        "notify_services",
+        "companion",
+    }
     if set(delivery) - allowed:
         _error("delivery", "contains unsupported delivery fields")
     if "notify_services" in delivery and not isinstance(delivery["notify_services"], list):
@@ -276,6 +343,8 @@ def validate_definition(data: dict[str, Any], *, partial: bool = False) -> dict[
     for entity_id in delivery.get("notify_entities", []):
         if not isinstance(entity_id, str) or not entity_id.startswith("notify."):
             _error("delivery.notify_entities", "may contain only notify entity IDs")
+    if "companion" in delivery:
+        delivery["companion"] = _validate_companion(delivery["companion"])
     result.setdefault("enabled", True)
     result.setdefault("match_current_state", False)
     return result
