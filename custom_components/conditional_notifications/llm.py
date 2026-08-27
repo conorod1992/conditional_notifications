@@ -7,6 +7,7 @@ from typing import Any, override
 
 import voluptuous as vol
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import llm
 from homeassistant.util.json import JsonObjectType
 
@@ -35,6 +36,17 @@ class _Tool(llm.Tool):
     ) -> tuple[str | None, bool]:
         return await _identity(hass, context)
 
+    async def mutation_identity(
+        self, hass: HomeAssistant, context: llm.LLMContext
+    ) -> tuple[str, bool]:
+        """Require a real HA user before an LLM tool may mutate records."""
+        user_id, is_admin = await self.identity(hass, context)
+        if user_id is None:
+            raise HomeAssistantError(
+                "Conditional Notifications mutations require an authenticated Home Assistant user"
+            )
+        return user_id, is_admin
+
     async def record(
         self, hass: HomeAssistant, args: dict[str, Any], context: llm.LLMContext
     ) -> NotificationRecord | dict[str, Any]:
@@ -56,7 +68,7 @@ class CreateTool(_Tool):
     async def async_call(
         self, hass: HomeAssistant, tool_input: llm.ToolInput, llm_context: llm.LLMContext
     ) -> JsonObjectType:
-        user_id, _ = await self.identity(hass, llm_context)
+        user_id, _ = await self.mutation_identity(hass, llm_context)
         return await self.manager.async_create(tool_input.tool_args["definition"], user_id)
 
 
@@ -105,6 +117,7 @@ class UpdateTool(_Tool):
     async def async_call(
         self, hass: HomeAssistant, tool_input: llm.ToolInput, llm_context: llm.LLMContext
     ) -> JsonObjectType:
+        await self.mutation_identity(hass, llm_context)
         record = await self.record(hass, tool_input.tool_args, llm_context)
         return (
             record
@@ -140,6 +153,7 @@ class ActionTool(_Tool):
     async def async_call(
         self, hass: HomeAssistant, tool_input: llm.ToolInput, llm_context: llm.LLMContext
     ) -> JsonObjectType:
+        user_id, _ = await self.mutation_identity(hass, llm_context)
         args = tool_input.tool_args
         record = await self.record(hass, args, llm_context)
         if isinstance(record, dict):
@@ -159,7 +173,6 @@ class ActionTool(_Tool):
             return await self.manager.async_delete(record)
         if action == "test":
             return await self.manager.async_test(record)
-        user_id, _ = await self.identity(hass, llm_context)
         return await self.manager.async_duplicate(record, user_id, args.get("name"))
 
 
