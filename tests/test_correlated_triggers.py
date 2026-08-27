@@ -6,7 +6,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from custom_components.conditional_notifications.lifecycle import LifecycleNotificationManager
+from custom_components.conditional_notifications.lifecycle import (
+    LifecycleNotificationManager,
+)
 from custom_components.conditional_notifications.models import NotificationRecord
 from custom_components.conditional_notifications.validation import (
     DefinitionError,
@@ -65,7 +67,15 @@ def test_validation_rejects_invalid_correlation_windows(window):
 def test_all_within_requires_multiple_triggers():
     with pytest.raises(DefinitionError, match="at least two"):
         validate_definition(
-            definition(triggers=[{"type": "state", "entity_id": "binary_sensor.door", "to": "on"}])
+            definition(
+                triggers=[
+                    {
+                        "type": "state",
+                        "entity_id": "binary_sensor.door",
+                        "to": "on",
+                    }
+                ]
+            )
         )
 
 
