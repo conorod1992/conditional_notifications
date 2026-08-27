@@ -18,7 +18,9 @@ from .validation import DefinitionError
 class LifecycleNotificationManager(NotificationManager):
     """Add re-arm, stable resolution, and bounded trigger correlation."""
 
-    def _correlation_store(self) -> dict[tuple[str, int], dict[int, tuple[datetime, dict[str, Any]]]]:
+    def _correlation_store(
+        self,
+    ) -> dict[tuple[str, int], dict[int, tuple[datetime, dict[str, Any]]]]:
         store = getattr(self, "_trigger_correlations", None)
         if store is None:
             store = {}
