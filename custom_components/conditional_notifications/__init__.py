@@ -10,12 +10,12 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN, PANEL_PATH, PANEL_URL, PLATFORMS, VERSION
+from .lifecycle import LifecycleNotificationManager
 from .llm import async_register_llm_api
-from .manager import NotificationManager
 from .services import async_register_services, async_unregister_services
 from .websocket import async_register_websocket
 
-type ConditionalNotificationsConfigEntry = ConfigEntry[NotificationManager]
+type ConditionalNotificationsConfigEntry = ConfigEntry[LifecycleNotificationManager]
 
 _BASE_PANEL_URL = "/conditional_notifications_panel_base.js"
 _PANEL_ASSET_REVISION = "status1"
@@ -25,7 +25,7 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConditionalNotificationsConfigEntry
 ) -> bool:
     """Set up the sole config entry."""
-    manager = NotificationManager(hass, dict(entry.options))
+    manager = LifecycleNotificationManager(hass, dict(entry.options))
     await manager.async_initialize()
     entry.runtime_data = manager
     hass.data.setdefault(DOMAIN, {})["manager"] = manager
