@@ -39,8 +39,7 @@ class LifecycleNotificationManager(NotificationManager):
         return NotificationManager._definition_is_semantic_change(
             old_definition, new_definition
         ) or any(
-            old_definition.get(key) != new_definition.get(key)
-            for key in ("match", "match_window")
+            old_definition.get(key) != new_definition.get(key) for key in ("match", "match_window")
         )
 
     def _correlate_trigger(
@@ -89,9 +88,7 @@ class LifecycleNotificationManager(NotificationManager):
         }
         return combined
 
-    async def _async_trigger(
-        self, record_id: str, revision: int, trigger: dict[str, Any]
-    ) -> None:
+    async def _async_trigger(self, record_id: str, revision: int, trigger: dict[str, Any]) -> None:
         record = self.store.records.get(record_id)
         if record is None or record.revision != revision:
             return
