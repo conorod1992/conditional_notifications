@@ -166,9 +166,7 @@ class ActionTool(_Tool):
 
 
 class ConditionalNotificationsAPI(llm.API):
-    def __init__(
-        self, *, hass: HomeAssistant, manager: LifecycleNotificationManager
-    ) -> None:
+    def __init__(self, *, hass: HomeAssistant, manager: LifecycleNotificationManager) -> None:
         super().__init__(hass=hass, id=DOMAIN, name=NAME)
         self.manager = manager
 
@@ -194,6 +192,4 @@ class ConditionalNotificationsAPI(llm.API):
 def async_register_llm_api(
     hass: HomeAssistant, manager: LifecycleNotificationManager
 ) -> Callable[[], None]:
-    return llm.async_register_api(
-        hass, ConditionalNotificationsAPI(hass=hass, manager=manager)
-    )
+    return llm.async_register_api(hass, ConditionalNotificationsAPI(hass=hass, manager=manager))
