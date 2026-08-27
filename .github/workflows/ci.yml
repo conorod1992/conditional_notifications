@@ -4,24 +4,19 @@ on:
     branches: [main]
   pull_request:
 permissions:
-  contents: write
+  contents: read
 jobs:
   backend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: fix/edge-case-correctness
       - uses: actions/setup-python@v5
         with: {python-version: "3.14", cache: pip}
       - run: pip install -r requirements_test.txt
-      - run: |
-          ruff format custom_components/conditional_notifications/manager.py custom_components/conditional_notifications/storage.py tests/test_edge_case_correctness.py
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- custom_components/conditional_notifications/manager.py custom_components/conditional_notifications/storage.py tests/test_edge_case_correctness.py
-          git commit -m "Apply Ruff formatting"
-          git push origin HEAD:fix/edge-case-correctness
+      - run: ruff format --check .
+      - run: ruff check .
+      - run: mypy custom_components/conditional_notifications
+      - run: pytest --cov=custom_components.conditional_notifications --cov-report=term-missing
   frontend:
     runs-on: ubuntu-latest
     steps:
