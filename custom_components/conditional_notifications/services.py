@@ -9,7 +9,8 @@ from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN
-from .manager import AmbiguousReference, NotificationManager
+from .lifecycle import LifecycleNotificationManager
+from .manager import AmbiguousReference
 
 REFERENCE_SCHEMA = {vol.Required("notification_id"): cv.string}
 
@@ -22,7 +23,7 @@ async def _identity(hass: HomeAssistant, call: ServiceCall) -> tuple[str | None,
     return user_id, bool(user and user.is_admin)
 
 
-def async_register_services(hass: HomeAssistant, manager: NotificationManager) -> None:
+def async_register_services(hass: HomeAssistant, manager: LifecycleNotificationManager) -> None:
     """Register the bounded action surface."""
 
     async def create(call: ServiceCall) -> dict[str, Any]:
