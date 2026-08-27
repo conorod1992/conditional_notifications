@@ -18,7 +18,7 @@ from .websocket import async_register_websocket
 type ConditionalNotificationsConfigEntry = ConfigEntry[LifecycleNotificationManager]
 
 _BASE_PANEL_URL = "/conditional_notifications_panel_base.js"
-_PANEL_ASSET_REVISION = "status1"
+_PANEL_ASSET_REVISION = "lifecycle1"
 
 
 async def async_setup_entry(
