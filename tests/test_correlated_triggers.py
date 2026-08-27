@@ -168,12 +168,8 @@ async def test_match_current_state_seeds_every_correlated_state_trigger():
     instance = manager()
     item = record()
     states = {
-        "binary_sensor.front_door": SimpleNamespace(
-            state="on", attributes={"friendly_name": "Front door"}
-        ),
-        "binary_sensor.hall_motion": SimpleNamespace(
-            state="on", attributes={"friendly_name": "Hall motion"}
-        ),
+        "binary_sensor.front_door": SimpleNamespace(state="on", attributes={}),
+        "binary_sensor.hall_motion": SimpleNamespace(state="on", attributes={}),
     }
     instance.hass = SimpleNamespace(states=SimpleNamespace(get=states.get))
     instance._async_trigger = AsyncMock()
@@ -181,6 +177,5 @@ async def test_match_current_state_seeds_every_correlated_state_trigger():
     await LifecycleNotificationManager._async_match_current(instance, item)
 
     assert instance._async_trigger.await_count == 2
-    assert [
-        call.args[2]["trigger_index"] for call in instance._async_trigger.await_args_list
-    ] == [0, 1]
+    contexts = [call.args[2] for call in instance._async_trigger.await_args_list]
+    assert [context["trigger_index"] for context in contexts] == [0, 1]
