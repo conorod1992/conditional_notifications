@@ -108,18 +108,14 @@ def test_expired_partial_match_is_not_reused():
 
     assert instance._correlate_trigger(item, trigger(0, "door"), start) is None
     assert (
-        instance._correlate_trigger(
-            item, trigger(1, "motion"), start + timedelta(seconds=31)
-        )
+        instance._correlate_trigger(item, trigger(1, "motion"), start + timedelta(seconds=31))
         is None
     )
-    combined = instance._correlate_trigger(
-        item, trigger(0, "door"), start + timedelta(seconds=40)
-    )
+    combined = instance._correlate_trigger(item, trigger(0, "door"), start + timedelta(seconds=40))
     assert combined is not None
-    assert combined["correlation"]["first_trigger_at"] == (
-        start + timedelta(seconds=31)
-    ).isoformat()
+    assert (
+        combined["correlation"]["first_trigger_at"] == (start + timedelta(seconds=31)).isoformat()
+    )
 
 
 def test_repeated_same_trigger_refreshes_its_place_in_window():
@@ -146,8 +142,6 @@ def test_correlation_progress_can_be_cleared_on_rebuild_boundary():
     instance._clear_correlation(item.id)
 
     assert (
-        instance._correlate_trigger(
-            item, trigger(1, "motion"), start + timedelta(seconds=10)
-        )
+        instance._correlate_trigger(item, trigger(1, "motion"), start + timedelta(seconds=10))
         is None
     )
