@@ -62,6 +62,10 @@ disable:
   name: Disable
   description: Disable a notification without deleting it.
   fields: *reference
+rearm:
+  name: Re-arm
+  description: Reset runtime progress and start a fresh observation cycle without changing the definition. A past absolute expiry must be edited first.
+  fields: *reference
 duplicate:
   name: Duplicate
   description: Copy a notification with fresh identity and runtime state.
