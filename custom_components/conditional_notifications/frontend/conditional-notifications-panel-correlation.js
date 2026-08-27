@@ -41,13 +41,14 @@ panel.validate = function(definition) {
   const errors = originalValidate.call(this, definition);
   const options = definition.delivery?.companion;
   if (!options) return errors;
-  const safeUri = (value) => value?.startsWith("/") || /^https?:\/\/[^\s]+$/i.test(value || "");
+  const safeUri = (value) => (value?.startsWith("/") && !value.startsWith("//")) || /^https?:\/\/[^\s]+$/i.test(value || "");
   if (options.url && !safeUri(options.url)) errors.companion = "Use a Home Assistant path beginning with / or an http/https URL.";
   if ((options.actions || []).length > 3) errors.companion = "Use at most three Companion App buttons.";
   for (const item of options.actions || []) {
     if (!item.title?.trim()) errors.companion = "Give each Companion App button a title.";
     if (item.uri && !safeUri(item.uri)) errors.companion = "Button links must be Home Assistant paths or http/https URLs.";
     if (item.action && !/^[A-Za-z0-9_:-]{1,64}$/.test(item.action)) errors.companion = "Button action IDs may use letters, numbers, _, :, and -.";
+    if (["URI", "REPLY"].includes(item.action)) errors.companion = "URI and REPLY are reserved Companion App action IDs.";
   }
   return errors;
 };
