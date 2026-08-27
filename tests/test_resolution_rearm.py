@@ -206,9 +206,7 @@ async def test_rearm_resets_progress_and_starts_fresh_cycle(manager, monkeypatch
 @pytest.mark.asyncio
 async def test_rearm_refuses_past_absolute_expiry_without_mutating(manager):
     past = (dt_util.now() - timedelta(minutes=1)).isoformat()
-    record = NotificationRecord.create(
-        validate_definition(definition(expires_at=past)), "u1"
-    )
+    record = NotificationRecord.create(validate_definition(definition(expires_at=past)), "u1")
     record.notification_count = 2
     record.enabled = False
     record.status = "expired"
