@@ -5,9 +5,7 @@ from __future__ import annotations
 from datetime import timedelta
 from unittest.mock import AsyncMock, Mock
 
-from homeassistant.util import dt as dt_util
 import pytest
-
 from custom_components.conditional_notifications.const import DEFAULT_OPTIONS
 from custom_components.conditional_notifications.lifecycle import LifecycleNotificationManager
 from custom_components.conditional_notifications.models import NotificationRecord
@@ -15,6 +13,7 @@ from custom_components.conditional_notifications.validation import (
     DefinitionError,
     validate_definition,
 )
+from homeassistant.util import dt as dt_util
 
 
 class FakeStore:
