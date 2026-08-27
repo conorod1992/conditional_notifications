@@ -34,6 +34,7 @@ EVENTS: Final = {
     "expired",
     "paused",
     "resumed",
+    "rearmed",
     "deleted",
 }
 
