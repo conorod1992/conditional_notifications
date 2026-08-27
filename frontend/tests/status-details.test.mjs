@@ -76,7 +76,7 @@ test("per-record history filters unrelated notifications", () => {
   assert.deepEqual(panel.historyForRecord.call(context,"abc"), [context.history[0],context.history[2]]);
 });
 
-test("detail view surfaces ignored reason, delivery error, and record history", () => {
+test("detail view surfaces ignored reason, delivery error, history, and re-arm", () => {
   const current = record({
     last_ignored_reason:"cooldown",
     last_trigger_at:"2026-08-27T11:30:00Z",
@@ -103,6 +103,27 @@ test("detail view surfaces ignored reason, delivery error, and record history", 
   assert.match(markup,/device unavailable/);
   assert.match(markup,/Delivery failed/);
   assert.match(markup,/sensor\.freezer/);
+  assert.match(markup,/id="detail-rearm"/);
+});
+
+test("resolution duration control is added for state-based resolution", () => {
+  let inserted = "";
+  const anchor = {insertAdjacentHTML: (_where, markup) => { inserted = markup; }};
+  const context = {
+    editor:{definition:{resolve_when:{type:"state",entity_id:"binary_sensor.door",to:"off",for:300}}},
+    shadowRoot:{
+      querySelector(selector) {
+        if (selector === '[data-path="resolve_when.for"]') return null;
+        if (selector === '[data-path="delivery.use_defaults"]') return null;
+        if (selector === "#notify-services") return null;
+        if (selector === '[data-path="resolve_when.to"]') return {closest:() => anchor};
+        return null;
+      },
+    },
+  };
+  panel.hydrateEditor.call(context);
+  assert.match(inserted,/resolve_when\.for/);
+  assert.match(inserted,/value="300"/);
 });
 
 test("cards advertise an explicit details action and no longer open the editor directly", () => {

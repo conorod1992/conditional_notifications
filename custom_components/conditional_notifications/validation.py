@@ -84,8 +84,6 @@ def _validate_trigger(
     elif kind == "named" and not result.get("trigger_id"):
         _error(f"{path}.trigger_id", "is required")
     _duration(result, "for")
-    if resolve and result.get("for"):
-        _error(f"{path}.for", "resolution duration is not supported")
     return result
 
 

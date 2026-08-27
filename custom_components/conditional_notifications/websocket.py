@@ -9,13 +9,14 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 
-from .manager import AmbiguousReference, DefinitionError, NotFound, NotificationManager
+from .lifecycle import LifecycleNotificationManager
+from .manager import AmbiguousReference, DefinitionError, NotFound
 from .models import NotificationRecord
 
 WS_TYPE = "conditional_notifications"
 
 
-def _manager(hass: HomeAssistant) -> NotificationManager:
+def _manager(hass: HomeAssistant) -> LifecycleNotificationManager:
     return hass.data[WS_TYPE]["manager"]
 
 
@@ -31,7 +32,9 @@ def _send_error(connection: websocket_api.ActiveConnection, msg_id: int, err: Ex
 
 
 def _resolve(
-    manager: NotificationManager, connection: websocket_api.ActiveConnection, reference: str
+    manager: LifecycleNotificationManager,
+    connection: websocket_api.ActiveConnection,
+    reference: str,
 ) -> NotificationRecord:
     return manager.resolve(reference, connection.user.id, connection.user.is_admin)
 
@@ -107,7 +110,17 @@ async def ws_update(
         vol.Required("type"): f"{WS_TYPE}/action",
         vol.Required("notification_id"): cv.string,
         vol.Required("action"): vol.In(
-            ["pause", "resume", "enable", "disable", "delete", "test", "trigger_now", "duplicate"]
+            [
+                "pause",
+                "resume",
+                "enable",
+                "disable",
+                "rearm",
+                "delete",
+                "test",
+                "trigger_now",
+                "duplicate",
+            ]
         ),
         vol.Optional("name"): cv.string,
     }
@@ -128,6 +141,8 @@ async def ws_action(
             result = await manager.async_set_enabled(record, True)
         elif action == "disable":
             result = await manager.async_set_enabled(record, False)
+        elif action == "rearm":
+            result = await manager.async_rearm(record)
         elif action == "delete":
             result = await manager.async_delete(record)
         elif action == "test":

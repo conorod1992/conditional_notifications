@@ -11,7 +11,8 @@ from homeassistant.helpers import llm
 from homeassistant.util.json import JsonObjectType
 
 from .const import DOMAIN, NAME
-from .manager import AmbiguousReference, NotificationManager
+from .lifecycle import LifecycleNotificationManager
+from .manager import AmbiguousReference
 from .models import NotificationRecord
 
 
@@ -24,9 +25,9 @@ async def _identity(hass: HomeAssistant, context: llm.LLMContext) -> tuple[str |
 
 
 class _Tool(llm.Tool):
-    manager: NotificationManager
+    manager: LifecycleNotificationManager
 
-    def __init__(self, manager: NotificationManager) -> None:
+    def __init__(self, manager: LifecycleNotificationManager) -> None:
         self.manager = manager
 
     async def identity(
@@ -114,14 +115,21 @@ class UpdateTool(_Tool):
 
 class ActionTool(_Tool):
     name = "ManageConditionalNotification"
-    description = (
-        "Pause, resume, enable, disable, delete, duplicate, or test one unambiguous notification."
-    )
+    description = "Pause, resume, enable, disable, re-arm, delete, duplicate, or test one unambiguous notification."
     parameters = vol.Schema(
         {
             vol.Required("reference"): str,
             vol.Required("action"): vol.In(
-                ["pause", "resume", "enable", "disable", "delete", "duplicate", "test"]
+                [
+                    "pause",
+                    "resume",
+                    "enable",
+                    "disable",
+                    "rearm",
+                    "delete",
+                    "duplicate",
+                    "test",
+                ]
             ),
             vol.Optional("entity_hint"): str,
             vol.Optional("name"): str,
@@ -145,6 +153,8 @@ class ActionTool(_Tool):
             return await self.manager.async_set_enabled(record, True)
         if action == "disable":
             return await self.manager.async_set_enabled(record, False)
+        if action == "rearm":
+            return await self.manager.async_rearm(record)
         if action == "delete":
             return await self.manager.async_delete(record)
         if action == "test":
@@ -154,7 +164,7 @@ class ActionTool(_Tool):
 
 
 class ConditionalNotificationsAPI(llm.API):
-    def __init__(self, *, hass: HomeAssistant, manager: NotificationManager) -> None:
+    def __init__(self, *, hass: HomeAssistant, manager: LifecycleNotificationManager) -> None:
         super().__init__(hass=hass, id=DOMAIN, name=NAME)
         self.manager = manager
 
@@ -177,5 +187,7 @@ class ConditionalNotificationsAPI(llm.API):
         )
 
 
-def async_register_llm_api(hass: HomeAssistant, manager: NotificationManager) -> Callable[[], None]:
+def async_register_llm_api(
+    hass: HomeAssistant, manager: LifecycleNotificationManager
+) -> Callable[[], None]:
     return llm.async_register_api(hass, ConditionalNotificationsAPI(hass=hass, manager=manager))

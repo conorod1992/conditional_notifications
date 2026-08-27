@@ -4,6 +4,7 @@ const { ConditionalNotificationsPanel } = await import(baseUrl);
 const panel = ConditionalNotificationsPanel.prototype;
 const originalRender = panel.render;
 const originalBind = panel.bind;
+const originalHydrateEditor = panel.hydrateEditor;
 const originalRenderHistory = panel.renderHistory;
 
 const esc = (value) => String(value ?? "").replace(/[&<>'"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
@@ -44,6 +45,18 @@ panel.compactDetails = function(details) {
     const shown = typeof value === "object" && value !== null ? JSON.stringify(value) : String(value);
     return `<span><strong>${esc(label(key))}:</strong> ${esc(shown)}</span>`;
   }).join("");
+};
+
+panel.hydrateEditor = function() {
+  originalHydrateEditor.call(this);
+  const resolve = this.editor?.definition?.resolve_when;
+  if (!resolve || resolve.type !== "state") return;
+  if (this.shadowRoot.querySelector('[data-path="resolve_when.for"]')) return;
+  const anchor = this.shadowRoot.querySelector('[data-path="resolve_when.to"]')?.closest("label");
+  anchor?.insertAdjacentHTML(
+    "afterend",
+    `<label>Resolution minimum duration (seconds)<input type="number" min="0" data-path="resolve_when.for" value="${resolve.for || ""}"><small>Only resolve if the clearing state remains true for this long. Leave blank for immediate resolution.</small></label>`,
+  );
 };
 
 panel.openDetails = function(record) {
@@ -115,7 +128,7 @@ panel.renderDetails = function() {
 
       <section class="technical"><details><summary>Record information</summary><div class="detail-grid compact"><div><span>Created</span><strong>${fmt(record.created_at)}</strong></div><div><span>Updated</span><strong>${fmt(record.updated_at)}</strong></div><div><span>Revision</span><strong>${esc(record.revision)}</strong></div><div><span>ID</span><strong class="mono">${esc(record.id)}</strong></div></div></details></section>
     </div>
-    <footer><button class="secondary" id="detail-edit">Edit</button><button class="secondary" data-action="test" data-id="${record.id}">Test</button><button class="secondary" data-action="${record.paused?"resume":"pause"}" data-id="${record.id}">${record.paused?"Resume":"Pause"}</button><button class="primary" id="close-details-footer">Close</button></footer>
+    <footer><button class="secondary" id="detail-edit">Edit</button><button class="secondary" id="detail-rearm">Re-arm</button><button class="secondary" data-action="test" data-id="${record.id}">Test</button><button class="secondary" data-action="${record.paused?"resume":"pause"}" data-id="${record.id}">${record.paused?"Resume":"Pause"}</button><button class="primary" id="close-details-footer">Close</button></footer>
   </div></div>`;
 };
 
@@ -154,6 +167,12 @@ panel.bindDetails = function() {
     const record = this.records.find(item=>item.id===this.detailId);
     this.detailId = null;
     if (record) this.openEditor(record);
+  });
+  root.querySelector("#detail-rearm")?.addEventListener("click",()=>{
+    const record = this.records.find(item=>item.id===this.detailId);
+    if (!record) return;
+    if (!confirm("Re-arm this notification? Its notification count, cooldown, last trigger, delivery result, and active occurrence will be reset.")) return;
+    this.action(record.id, "rearm");
   });
   root.querySelector(".detail-scrim")?.addEventListener("click",event=>{
     if (event.target.classList.contains("detail-scrim")) this.closeDetails();

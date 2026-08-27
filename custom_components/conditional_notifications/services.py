@@ -9,7 +9,8 @@ from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN
-from .manager import AmbiguousReference, NotificationManager
+from .lifecycle import LifecycleNotificationManager
+from .manager import AmbiguousReference
 
 REFERENCE_SCHEMA = {vol.Required("notification_id"): cv.string}
 
@@ -22,7 +23,7 @@ async def _identity(hass: HomeAssistant, call: ServiceCall) -> tuple[str | None,
     return user_id, bool(user and user.is_admin)
 
 
-def async_register_services(hass: HomeAssistant, manager: NotificationManager) -> None:
+def async_register_services(hass: HomeAssistant, manager: LifecycleNotificationManager) -> None:
     """Register the bounded action surface."""
 
     async def create(call: ServiceCall) -> dict[str, Any]:
@@ -54,6 +55,8 @@ def async_register_services(hass: HomeAssistant, manager: NotificationManager) -
             return await manager.async_set_enabled(record, True)
         if action == "disable":
             return await manager.async_set_enabled(record, False)
+        if action == "rearm":
+            return await manager.async_rearm(record)
         if action == "duplicate":
             return await manager.async_duplicate(record, user_id, call.data.get("name"))
         if action == "test":
@@ -94,7 +97,17 @@ def async_register_services(hass: HomeAssistant, manager: NotificationManager) -
         schema=vol.Schema({vol.Optional("query"): cv.string}),
         supports_response=SupportsResponse.ONLY,
     )
-    for action in ("get", "delete", "pause", "resume", "enable", "disable", "test", "trigger_now"):
+    for action in (
+        "get",
+        "delete",
+        "pause",
+        "resume",
+        "enable",
+        "disable",
+        "rearm",
+        "test",
+        "trigger_now",
+    ):
         hass.services.async_register(
             DOMAIN,
             action,
@@ -145,6 +158,7 @@ def async_unregister_services(hass: HomeAssistant) -> None:
         "resume",
         "enable",
         "disable",
+        "rearm",
         "duplicate",
         "test",
         "trigger_now",
