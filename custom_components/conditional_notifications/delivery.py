@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 from homeassistant.components import persistent_notification
@@ -27,13 +28,39 @@ async def async_render(
 
 
 def merge_delivery(defaults: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Merge delivery targets while retaining per-notification Companion options."""
     if override.get("use_defaults", True):
-        return defaults
-    return {
-        "persistent_notification": bool(override.get("persistent_notification")),
-        "notify_entities": list(override.get("notify_entities", [])),
-        "notify_services": list(override.get("notify_services", [])),
-    }
+        delivery = deepcopy(defaults)
+    else:
+        delivery = {
+            "persistent_notification": bool(override.get("persistent_notification")),
+            "notify_entities": list(override.get("notify_entities", [])),
+            "notify_services": list(override.get("notify_services", [])),
+        }
+    if companion := override.get("companion"):
+        delivery["companion"] = deepcopy(companion)
+    return delivery
+
+
+def _notify_payload(title: str, message: str, delivery: dict[str, Any]) -> dict[str, Any]:
+    payload: dict[str, Any] = {"title": title, "message": message}
+    companion = delivery.get("companion")
+    if not companion:
+        return payload
+
+    data: dict[str, Any] = {}
+    if url := companion.get("url"):
+        data["url"] = url
+    if actions := companion.get("actions"):
+        data["actions"] = [
+            {"action": "URI", "title": item["title"], "uri": item["uri"]}
+            if item.get("uri")
+            else {"action": item["action"], "title": item["title"]}
+            for item in actions
+        ]
+    if data:
+        payload["data"] = data
+    return payload
 
 
 async def async_deliver(
@@ -47,6 +74,7 @@ async def async_deliver(
 ) -> list[dict[str, Any]]:
     """Deliver independently; one channel failure cannot stop another."""
     delivery = merge_delivery(defaults, record.definition.get("delivery", {}))
+    notify_payload = _notify_payload(title, message, delivery)
     results: list[dict[str, Any]] = []
     notification_id = f"{DOMAIN}_{record.id}"
     if test:
@@ -66,7 +94,7 @@ async def async_deliver(
             await hass.services.async_call(
                 "notify",
                 "send_message",
-                {"title": title, "message": message},
+                notify_payload,
                 blocking=True,
                 target={"entity_id": entity_id},
             )
@@ -78,9 +106,7 @@ async def async_deliver(
             domain, service_name = service.split(".", 1) if "." in service else ("notify", service)
             if domain != "notify":
                 raise ValueError("only notify services are allowed")
-            await hass.services.async_call(
-                "notify", service_name, {"title": title, "message": message}, blocking=True
-            )
+            await hass.services.async_call("notify", service_name, notify_payload, blocking=True)
             results.append({"channel": f"notify.{service_name}", "success": True})
         except Exception as err:
             results.append({"channel": service, "success": False, "error": str(err)[:300]})
