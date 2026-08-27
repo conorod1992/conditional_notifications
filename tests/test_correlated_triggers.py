@@ -167,13 +167,15 @@ async def test_manual_trigger_bypasses_correlation(monkeypatch):
 async def test_match_current_state_seeds_every_correlated_state_trigger():
     instance = manager()
     item = record()
-    instance.hass = SimpleNamespace(
-        states=SimpleNamespace(
-            get=lambda entity_id: SimpleNamespace(
-                state="on", attributes={"friendly_name": entity_id}
-            )
-        )
-    )
+    states = {
+        "binary_sensor.front_door": SimpleNamespace(
+            state="on", attributes={"friendly_name": "Front door"}
+        ),
+        "binary_sensor.hall_motion": SimpleNamespace(
+            state="on", attributes={"friendly_name": "Hall motion"}
+        ),
+    }
+    instance.hass = SimpleNamespace(states=SimpleNamespace(get=states.get))
     instance._async_trigger = AsyncMock()
 
     await LifecycleNotificationManager._async_match_current(instance, item)
