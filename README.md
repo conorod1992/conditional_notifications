@@ -398,6 +398,20 @@ Modern Home Assistant `notify` entities are supported using `notify.send_message
 
 If more than one delivery channel is configured, failure of one channel does not prevent the others from being attempted.
 
+### Companion App options
+
+For Home Assistant Companion App notify targets, an individual conditional notification can optionally add:
+
+- a destination to open when the notification itself is tapped;
+- up to three action buttons;
+- buttons which either open a link or fire a named Companion App notification-action event that another Home Assistant automation can handle.
+
+Home Assistant-relative destinations must begin with a single `/`, such as `/lovelace/security`. Full `http://` and `https://` URLs are also accepted.
+
+These options are deliberately bounded. Conditional Notifications does **not** expose an arbitrary Companion App `data` object, arbitrary service calls, command URIs, or unrestricted notification payload fields.
+
+If a Companion-specific payload is sent to a notify target which does not support it, that target may report a delivery failure; other configured delivery channels are still attempted independently.
+
 ### Test delivery
 
 The **Test** option renders and sends the notification using the real configured delivery channels.
