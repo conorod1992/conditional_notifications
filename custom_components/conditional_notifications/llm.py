@@ -115,9 +115,7 @@ class UpdateTool(_Tool):
 
 class ActionTool(_Tool):
     name = "ManageConditionalNotification"
-    description = (
-        "Pause, resume, enable, disable, re-arm, delete, duplicate, or test one unambiguous notification."
-    )
+    description = "Pause, resume, enable, disable, re-arm, delete, duplicate, or test one unambiguous notification."
     parameters = vol.Schema(
         {
             vol.Required("reference"): str,
