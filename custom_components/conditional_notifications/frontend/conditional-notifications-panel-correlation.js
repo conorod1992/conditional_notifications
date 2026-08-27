@@ -32,7 +32,7 @@ panel.preview = function(definition) {
     const parts = [];
     if (options.url) parts.push(`tap opens ${options.url}`);
     if (options.actions?.length) parts.push(`${options.actions.length} action button${options.actions.length === 1 ? "" : "s"}`);
-    preview.delivery += `; Companion App: ${parts.join(", ")}`;
+    preview.delivery += `; Companion App service extras: ${parts.join(", ")}`;
   }
   return preview;
 };
@@ -90,7 +90,7 @@ panel.hydrateEditor = function() {
       "beforebegin",
       `<section class="subcard" id="companion-options">
         <div class="subhead"><strong>Companion App options</strong></div>
-        <small>Optional extras for Home Assistant mobile-app notify targets. These do not expose arbitrary notification data.</small>
+        <small>Optional extras for legacy Companion App <code>notify.mobile_app_*</code> service targets. Modern notify entities still receive the normal title and message.</small>
         <label>Open when notification is tapped
           <input id="companion-url" type="text" value="${escLocal(options.url || "")}" placeholder="/lovelace/security or https://example.com">
           <small>Use a Home Assistant path beginning with /, or an http/https URL.</small>

@@ -42,7 +42,7 @@ def test_companion_options_survive_default_target_merge() -> None:
 
 
 @pytest.mark.asyncio
-async def test_notify_payload_contains_only_bounded_companion_data() -> None:
+async def test_modern_notify_entity_does_not_receive_unsupported_companion_data() -> None:
     async_call = AsyncMock()
     hass = SimpleNamespace(services=SimpleNamespace(async_call=async_call))
     record = SimpleNamespace(
@@ -52,6 +52,35 @@ async def test_notify_payload_contains_only_bounded_companion_data() -> None:
                 "use_defaults": False,
                 "persistent_notification": False,
                 "notify_entities": ["notify.phone"],
+                "companion": {"url": "/lovelace/security"},
+            }
+        },
+    )
+
+    result = await async_deliver(hass, record, "Door", "The door opened", {})
+
+    async_call.assert_awaited_once_with(
+        "notify",
+        "send_message",
+        {"title": "Door", "message": "The door opened"},
+        blocking=True,
+        target={"entity_id": "notify.phone"},
+    )
+    assert result == [{"channel": "notify.phone", "success": True}]
+
+
+@pytest.mark.asyncio
+async def test_legacy_mobile_service_receives_only_bounded_companion_data() -> None:
+    async_call = AsyncMock()
+    hass = SimpleNamespace(services=SimpleNamespace(async_call=async_call))
+    record = SimpleNamespace(
+        id="record-id",
+        definition={
+            "delivery": {
+                "use_defaults": False,
+                "persistent_notification": False,
+                "notify_entities": [],
+                "notify_services": ["notify.mobile_app_phone"],
                 "companion": {
                     "url": "/lovelace/security",
                     "actions": [
@@ -67,7 +96,7 @@ async def test_notify_payload_contains_only_bounded_companion_data() -> None:
 
     async_call.assert_awaited_once_with(
         "notify",
-        "send_message",
+        "mobile_app_phone",
         {
             "title": "Door",
             "message": "The door opened",
@@ -80,9 +109,8 @@ async def test_notify_payload_contains_only_bounded_companion_data() -> None:
             },
         },
         blocking=True,
-        target={"entity_id": "notify.phone"},
     )
-    assert result == [{"channel": "notify.phone", "success": True}]
+    assert result == [{"channel": "notify.mobile_app_phone", "success": True}]
 
 
 @pytest.mark.parametrize(

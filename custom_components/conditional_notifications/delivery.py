@@ -43,6 +43,7 @@ def merge_delivery(defaults: dict[str, Any], override: dict[str, Any]) -> dict[s
 
 
 def _notify_payload(title: str, message: str, delivery: dict[str, Any]) -> dict[str, Any]:
+    """Build the legacy notify-service payload, including bounded Companion data."""
     payload: dict[str, Any] = {"title": title, "message": message}
     companion = delivery.get("companion")
     if not companion:
@@ -74,7 +75,8 @@ async def async_deliver(
 ) -> list[dict[str, Any]]:
     """Deliver independently; one channel failure cannot stop another."""
     delivery = merge_delivery(defaults, record.definition.get("delivery", {}))
-    notify_payload = _notify_payload(title, message, delivery)
+    entity_payload = {"title": title, "message": message}
+    service_payload = _notify_payload(title, message, delivery)
     results: list[dict[str, Any]] = []
     notification_id = f"{DOMAIN}_{record.id}"
     if test:
@@ -91,10 +93,13 @@ async def async_deliver(
             )
     for entity_id in delivery.get("notify_entities", []):
         try:
+            # Home Assistant's notify.send_message entity service intentionally
+            # exposes only message/title. Extended Companion App data belongs to
+            # legacy notify.mobile_app_* services below.
             await hass.services.async_call(
                 "notify",
                 "send_message",
-                notify_payload,
+                entity_payload,
                 blocking=True,
                 target={"entity_id": entity_id},
             )
@@ -106,7 +111,7 @@ async def async_deliver(
             domain, service_name = service.split(".", 1) if "." in service else ("notify", service)
             if domain != "notify":
                 raise ValueError("only notify services are allowed")
-            await hass.services.async_call("notify", service_name, notify_payload, blocking=True)
+            await hass.services.async_call("notify", service_name, service_payload, blocking=True)
             results.append({"channel": f"notify.{service_name}", "success": True})
         except Exception as err:
             results.append({"channel": service, "success": False, "error": str(err)[:300]})

@@ -92,7 +92,10 @@ class LifecycleNotificationManager(NotificationManager):
         record = self.store.records.get(record_id)
         if record is None or record.revision != revision:
             return
-        if record.definition.get("match", "any") == "any":
+        # Trigger Now is an explicit user request to exercise the complete
+        # notification. It must not be swallowed by correlation just because a
+        # synthetic manual trigger has no configured trigger_index.
+        if trigger.get("type") == "manual" or record.definition.get("match", "any") == "any":
             await super()._async_trigger(record_id, revision, trigger)
             return
         if not record.enabled or record.paused:
@@ -110,6 +113,34 @@ class LifecycleNotificationManager(NotificationManager):
         # across an uncertain subscription gap.
         self._clear_correlation(record.id)
         await super().async_rebuild(record, allow_current=allow_current)
+
+    async def _async_match_current(self, record: NotificationRecord) -> None:
+        """Seed every currently matching state trigger for all-within correlation."""
+        if record.definition.get("match", "any") != "all_within":
+            await super()._async_match_current(record)
+            return
+
+        for index, definition in enumerate(record.definition["triggers"]):
+            if definition["type"] != "state" or "to" not in definition or definition.get("for"):
+                continue
+            state = self.hass.states.get(definition["entity_id"])
+            if state and state.state == definition["to"]:
+                await self._async_trigger(
+                    record.id,
+                    record.revision,
+                    {
+                        "type": "state",
+                        "trigger_index": index,
+                        "entity_id": definition["entity_id"],
+                        "friendly_name": state.attributes.get(
+                            "friendly_name", definition["entity_id"]
+                        ),
+                        "from_state": None,
+                        "to_state": state.state,
+                        "timestamp": dt_util.now().isoformat(),
+                        "matched_current_state": True,
+                    },
+                )
 
     async def async_rearm(self, record: NotificationRecord) -> dict[str, Any]:
         """Reset runtime progress and begin a fresh observation cycle."""

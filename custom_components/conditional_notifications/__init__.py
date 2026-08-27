@@ -19,7 +19,7 @@ type ConditionalNotificationsConfigEntry = ConfigEntry[LifecycleNotificationMana
 
 _BASE_PANEL_URL = "/conditional_notifications_panel_base.js"
 _STATUS_PANEL_URL = "/conditional_notifications_panel_status.js"
-_PANEL_ASSET_REVISION = "delivery1"
+_PANEL_ASSET_REVISION = "releasefix1"
 
 
 async def async_setup_entry(
@@ -43,8 +43,11 @@ async def async_setup_entry(
         await hass.http.async_register_static_paths(
             [
                 StaticPathConfig(PANEL_URL, str(panel_file), cache_headers=True),
-                StaticPathConfig(_STATUS_PANEL_URL, str(status_panel_file), cache_headers=True),
-                StaticPathConfig(_BASE_PANEL_URL, str(base_panel_file), cache_headers=True),
+                # These modules are imported by the versioned top-level module
+                # using stable URLs, so they must not retain stale cache headers
+                # across integration upgrades.
+                StaticPathConfig(_STATUS_PANEL_URL, str(status_panel_file), cache_headers=False),
+                StaticPathConfig(_BASE_PANEL_URL, str(base_panel_file), cache_headers=False),
             ]
         )
         frontend.async_register_built_in_panel(

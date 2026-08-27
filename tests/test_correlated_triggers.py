@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from custom_components.conditional_notifications.lifecycle import (
     LifecycleNotificationManager,
 )
+from custom_components.conditional_notifications.manager import NotificationManager
 from custom_components.conditional_notifications.models import NotificationRecord
 from custom_components.conditional_notifications.validation import (
     DefinitionError,
@@ -144,3 +147,36 @@ def test_correlation_progress_can_be_cleared_on_rebuild_boundary():
         instance._correlate_trigger(item, trigger(1, "motion"), start + timedelta(seconds=10))
         is None
     )
+
+
+@pytest.mark.asyncio
+async def test_manual_trigger_bypasses_correlation(monkeypatch):
+    instance = manager()
+    item = record()
+    instance.store = SimpleNamespace(records={item.id: item})
+    base_trigger = AsyncMock()
+    monkeypatch.setattr(NotificationManager, "_async_trigger", base_trigger)
+    manual = {"type": "manual", "friendly_name": "Manual trigger"}
+
+    await instance._async_trigger(item.id, item.revision, manual)
+
+    base_trigger.assert_awaited_once_with(instance, item.id, item.revision, manual)
+
+
+@pytest.mark.asyncio
+async def test_match_current_state_seeds_every_correlated_state_trigger():
+    instance = manager()
+    item = record()
+    instance.hass = SimpleNamespace(
+        states=SimpleNamespace(
+            get=lambda entity_id: SimpleNamespace(
+                state="on", attributes={"friendly_name": entity_id}
+            )
+        )
+    )
+    instance._async_trigger = AsyncMock()
+
+    await LifecycleNotificationManager._async_match_current(instance, item)
+
+    assert instance._async_trigger.await_count == 2
+    assert [call.args[2]["trigger_index"] for call in instance._async_trigger.await_args_list] == [0, 1]
