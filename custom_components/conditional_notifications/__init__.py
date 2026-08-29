@@ -58,7 +58,9 @@ async def async_setup_entry(
                 StaticPathConfig(
                     _STATUS_PANEL_URL, str(status_panel_file), cache_headers=False
                 ),
-                StaticPathConfig(_BASE_PANEL_URL, str(base_panel_file), cache_headers=False),
+                StaticPathConfig(
+                    _BASE_PANEL_URL, str(base_panel_file), cache_headers=False
+                ),
             ]
         )
         frontend.async_register_built_in_panel(
