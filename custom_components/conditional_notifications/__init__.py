@@ -39,7 +39,9 @@ async def async_setup_entry(
     if manager.options.get("panel_enabled", True):
         panel_dir = Path(__file__).parent / "frontend"
         panel_file = panel_dir / "conditional-notifications-panel-entry.js"
-        correlation_panel_file = panel_dir / "conditional-notifications-panel-correlation.js"
+        correlation_panel_file = (
+            panel_dir / "conditional-notifications-panel-correlation.js"
+        )
         status_panel_file = panel_dir / "conditional-notifications-panel-status.js"
         base_panel_file = panel_dir / "conditional-notifications-panel.js"
         await hass.http.async_register_static_paths(
