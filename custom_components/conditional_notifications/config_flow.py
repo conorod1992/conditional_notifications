@@ -48,6 +48,7 @@ class ConditionalNotificationsOptionsFlow(config_entries.OptionsFlow):
             delivery = dict(options["delivery"])
             delivery["persistent_notification"] = user_input.pop("persistent_notification")
             delivery["notify_entities"] = user_input.pop("notify_entities", [])
+            delivery["assist_satellites"] = user_input.pop("assist_satellites", [])
             return self.async_create_entry(
                 title="", data={**options, **user_input, "delivery": delivery}
             )
@@ -62,6 +63,10 @@ class ConditionalNotificationsOptionsFlow(config_entries.OptionsFlow):
                     "notify_entities",
                     default=options["delivery"].get("notify_entities", []),
                 ): EntitySelector(EntitySelectorConfig(domain="notify", multiple=True)),
+                vol.Optional(
+                    "assist_satellites",
+                    default=options["delivery"].get("assist_satellites", []),
+                ): EntitySelector(EntitySelectorConfig(domain="assist_satellite", multiple=True)),
                 vol.Required(
                     "history_retention_days", default=options["history_retention_days"]
                 ): NumberSelector(
