@@ -324,14 +324,15 @@ def validate_definition(data: dict[str, Any], *, partial: bool = False) -> dict[
     delivery = result.setdefault("delivery", {"use_defaults": True})
     if not isinstance(delivery, dict):
         _error("delivery", "must be an object")
-    allowed = {
+    allowed_delivery = {
         "use_defaults",
         "persistent_notification",
         "notify_entities",
         "notify_services",
+        "assist_satellites",
         "companion",
     }
-    if set(delivery) - allowed:
+    if set(delivery) - allowed_delivery:
         _error("delivery", "contains unsupported delivery fields")
     if "notify_services" in delivery and not isinstance(delivery["notify_services"], list):
         _error("delivery.notify_services", "must be a list")
@@ -343,6 +344,11 @@ def validate_definition(data: dict[str, Any], *, partial: bool = False) -> dict[
     for entity_id in delivery.get("notify_entities", []):
         if not isinstance(entity_id, str) or not entity_id.startswith("notify."):
             _error("delivery.notify_entities", "may contain only notify entity IDs")
+    if "assist_satellites" in delivery and not isinstance(delivery["assist_satellites"], list):
+        _error("delivery.assist_satellites", "must be a list")
+    for entity_id in delivery.get("assist_satellites", []):
+        if not isinstance(entity_id, str) or not entity_id.startswith("assist_satellite."):
+            _error("delivery.assist_satellites", "may contain only Assist satellite entity IDs")
     if "companion" in delivery:
         delivery["companion"] = _validate_companion(delivery["companion"])
     result.setdefault("enabled", True)
