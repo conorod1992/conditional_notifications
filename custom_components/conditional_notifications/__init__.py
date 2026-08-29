@@ -39,9 +39,7 @@ async def async_setup_entry(
     if manager.options.get("panel_enabled", True):
         panel_dir = Path(__file__).parent / "frontend"
         panel_file = panel_dir / "conditional-notifications-panel-entry.js"
-        correlation_panel_file = (
-            panel_dir / "conditional-notifications-panel-correlation.js"
-        )
+        correlation_panel_file = panel_dir / "conditional-notifications-panel-correlation.js"
         status_panel_file = panel_dir / "conditional-notifications-panel-status.js"
         base_panel_file = panel_dir / "conditional-notifications-panel.js"
         await hass.http.async_register_static_paths(
@@ -55,12 +53,8 @@ async def async_setup_entry(
                 # These modules are imported by the versioned top-level module
                 # using stable URLs, so they must not retain stale cache headers
                 # across integration upgrades.
-                StaticPathConfig(
-                    _STATUS_PANEL_URL, str(status_panel_file), cache_headers=False
-                ),
-                StaticPathConfig(
-                    _BASE_PANEL_URL, str(base_panel_file), cache_headers=False
-                ),
+                StaticPathConfig(_STATUS_PANEL_URL, str(status_panel_file), cache_headers=False),
+                StaticPathConfig(_BASE_PANEL_URL, str(base_panel_file), cache_headers=False),
             ]
         )
         frontend.async_register_built_in_panel(
