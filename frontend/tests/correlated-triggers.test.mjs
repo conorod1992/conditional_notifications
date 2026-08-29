@@ -50,29 +50,30 @@ test("preview summarizes bounded Companion App options", () => {
   assert.match(preview.delivery,/1 action button/);
 });
 
-test("editor renders correlation and Companion App controls", () => {
-  let inserted = "";
-  const anchor = {insertAdjacentHTML: (_where, markup) => { inserted += markup; }};
-  const context = {
-    editor:{definition:structuredClone(definition)},
-    errors:{},
-    shadowRoot:{
-      querySelector(selector) {
-        if (selector === "#trigger-match-mode") return null;
-        if (selector === "#companion-options") return null;
-        if (selector === ".preview") return anchor;
-        if (selector === '[data-path="delivery.use_defaults"]') return null;
-        if (selector === "#notify-services") return null;
-        if (selector === '[data-path="resolve_when.for"]') return null;
-        return null;
-      },
-    },
+test("editor helpers render correlation and Companion App controls", () => {
+  const context = {errors:{}};
+  const correlation = panel.renderCorrelationOptions.call(context, definition);
+  const companion = panel.renderCompanionOptions.call(context, definition);
+  assert.match(correlation,/All triggers within a time window/);
+  assert.match(correlation,/data-path="match_window"/);
+  assert.match(correlation,/value="30"/);
+  assert.match(companion,/Companion App extras/);
+  assert.match(companion,/id="companion-url"/);
+  assert.match(companion,/Add action button/);
+});
+
+test("custom delivery renders distinct notify and Assist satellite targets", () => {
+  const value = structuredClone(definition);
+  value.delivery = {
+    use_defaults:false,
+    persistent_notification:false,
+    notify_entities:["notify.conors_phone"],
+    assist_satellites:["assist_satellite.kitchen"],
   };
-  panel.hydrateEditor.call(context);
-  assert.match(inserted,/All triggers within a time window/);
-  assert.match(inserted,/data-path="match_window"/);
-  assert.match(inserted,/value="30"/);
-  assert.match(inserted,/Companion App options/);
-  assert.match(inserted,/id="companion-url"/);
-  assert.match(inserted,/Add action button/);
+  const markup = panel.renderCustomDelivery.call({errors:{}}, value);
+  assert.match(markup,/Phones & notification devices/);
+  assert.match(markup,/data-domain="notify"/);
+  assert.match(markup,/Voice announcements/);
+  assert.match(markup,/assist_satellite\.announce/);
+  assert.match(markup,/data-domain="assist_satellite"/);
 });
