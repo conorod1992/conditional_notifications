@@ -23,6 +23,7 @@ DEFAULT_OPTIONS: Final = {
         "persistent_notification": True,
         "notify_entities": [],
         "notify_services": [],
+        "assist_satellites": [],
     },
 }
 
