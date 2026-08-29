@@ -36,6 +36,7 @@ def merge_delivery(defaults: dict[str, Any], override: dict[str, Any]) -> dict[s
             "persistent_notification": bool(override.get("persistent_notification")),
             "notify_entities": list(override.get("notify_entities", [])),
             "notify_services": list(override.get("notify_services", [])),
+            "assist_satellites": list(override.get("assist_satellites", [])),
         }
     if companion := override.get("companion"):
         delivery["companion"] = deepcopy(companion)
@@ -100,6 +101,21 @@ async def async_deliver(
                 "notify",
                 "send_message",
                 entity_payload,
+                blocking=True,
+                target={"entity_id": entity_id},
+            )
+            results.append({"channel": entity_id, "success": True})
+        except Exception as err:
+            results.append({"channel": entity_id, "success": False, "error": str(err)[:300]})
+    for entity_id in delivery.get("assist_satellites", []):
+        try:
+            # Assist satellites are an announcement channel rather than notify
+            # entities. Speak the message only; the visual title is intentionally
+            # not repeated aloud.
+            await hass.services.async_call(
+                "assist_satellite",
+                "announce",
+                {"message": message},
                 blocking=True,
                 target={"entity_id": entity_id},
             )
