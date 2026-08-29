@@ -13,7 +13,11 @@ def _base(delivery: dict) -> dict:
     return {
         "name": "Kitchen announcement",
         "triggers": [
-            {"type": "state", "entity_id": "binary_sensor.kitchen", "to": "on"}
+            {
+                "type": "state",
+                "entity_id": "binary_sensor.kitchen",
+                "to": "on",
+            }
         ],
         "title": "Kitchen",
         "message": "Kitchen motion detected",
