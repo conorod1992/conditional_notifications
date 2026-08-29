@@ -19,7 +19,7 @@ type ConditionalNotificationsConfigEntry = ConfigEntry[LifecycleNotificationMana
 
 _BASE_PANEL_URL = "/conditional_notifications_panel_base.js"
 _STATUS_PANEL_URL = "/conditional_notifications_panel_status.js"
-_PANEL_ASSET_REVISION = "releasefix1"
+_PANEL_ASSET_REVISION = "editor2"
 
 
 async def async_setup_entry(
