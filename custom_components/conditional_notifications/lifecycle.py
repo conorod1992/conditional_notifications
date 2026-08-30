@@ -8,6 +8,7 @@ from typing import Any
 
 from homeassistant.util import dt as dt_util
 
+from .conditions import is_unknown_state, state_value
 from .delivery import async_clear
 from .manager import NotificationManager
 from .models import NotificationRecord, duration_seconds, parse_datetime, utc_iso
@@ -133,7 +134,13 @@ class LifecycleNotificationManager(NotificationManager):
             if definition["type"] != "state" or "to" not in definition or definition.get("for"):
                 continue
             state = self.hass.states.get(definition["entity_id"])
-            if state and state.state == definition["to"]:
+            value = state_value(state, definition.get("attribute"))
+            if (
+                state
+                and value is not None
+                and not is_unknown_state(value)
+                and value == definition["to"]
+            ):
                 await self._async_trigger(
                     record.id,
                     record.revision,
@@ -145,7 +152,8 @@ class LifecycleNotificationManager(NotificationManager):
                             "friendly_name", definition["entity_id"]
                         ),
                         "from_state": None,
-                        "to_state": state.state,
+                        "to_state": value,
+                        "attribute": definition.get("attribute"),
                         "timestamp": dt_util.now().isoformat(),
                         "matched_current_state": True,
                     },

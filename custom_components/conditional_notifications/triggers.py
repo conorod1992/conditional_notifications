@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
@@ -12,8 +13,8 @@ from homeassistant.exceptions import ConditionError
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.util import dt as dt_util
 
-from .conditions import numeric_matches, state_value
-from .const import DOMAIN, UNKNOWN_STATES
+from .conditions import is_unknown_state, numeric_matches, state_value
+from .const import DOMAIN
 
 
 def _subset(expected: dict[str, Any], actual: dict[str, Any]) -> bool:
@@ -37,11 +38,21 @@ def _state_match(definition: dict[str, Any], old: State | None, new: State | Non
         return False
     old_value = state_value(old, definition.get("attribute"))
     new_value = state_value(new, definition.get("attribute"))
-    if new_value in UNKNOWN_STATES or new_value is None or old_value == new_value:
+    if new_value is None or is_unknown_state(new_value) or old_value == new_value:
         return False
     return ("from" not in definition or old_value == definition["from"]) and (
         "to" not in definition or new_value == definition["to"]
     )
+
+
+def _state_still_matches(definition: dict[str, Any], state: State | None) -> bool:
+    """Return whether a pending state duration remains continuously valid."""
+    value = state_value(state, definition.get("attribute"))
+    if value is None or is_unknown_state(value):
+        return False
+    if "to" in definition:
+        return value == definition["to"]
+    return "from" in definition and value != definition["from"]
 
 
 def _numeric_match(
@@ -49,12 +60,13 @@ def _numeric_match(
 ) -> tuple[bool, float | None, float | None]:
     def number(state: State | None) -> float | None:
         raw = state_value(state, definition.get("attribute"))
-        if raw in UNKNOWN_STATES or raw is None:
+        if raw is None or is_unknown_state(raw):
             return None
         try:
-            return float(raw)
+            number = float(raw)
         except (TypeError, ValueError):
             return None
+        return number if math.isfinite(number) else None
 
     previous, current = number(old), number(new)
     return (
@@ -185,8 +197,7 @@ def attach_trigger(
                 # inside a numeric range must not cancel an in-flight duration.
                 still_matching = False
                 if kind == "state":
-                    value = state_value(new, definition.get("attribute"))
-                    still_matching = "to" in definition and value == definition["to"]
+                    still_matching = _state_still_matches(definition, new)
                 elif kind == "numeric_state":
                     try:
                         value = float(state_value(new, definition.get("attribute")))
@@ -205,8 +216,7 @@ def attach_trigger(
                 current = hass.states.get(entity_id)
                 still_matches = False
                 if kind == "state":
-                    value = state_value(current, definition.get("attribute"))
-                    still_matches = "to" not in definition or value == definition["to"]
+                    still_matches = _state_still_matches(definition, current)
                 elif kind == "numeric_state":
                     try:
                         value = float(state_value(current, definition.get("attribute")))

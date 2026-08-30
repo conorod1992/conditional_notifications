@@ -6,14 +6,16 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from homeassistant.core import State
-
 from custom_components.conditional_notifications.const import DEFAULT_OPTIONS
 from custom_components.conditional_notifications.lifecycle import LifecycleNotificationManager
 from custom_components.conditional_notifications.manager import NotificationManager
 from custom_components.conditional_notifications.models import NotificationRecord
 from custom_components.conditional_notifications.triggers import _state_match, _state_still_matches
-from custom_components.conditional_notifications.validation import DefinitionError, validate_definition
+from custom_components.conditional_notifications.validation import (
+    DefinitionError,
+    validate_definition,
+)
+from homeassistant.core import State
 
 
 class FakeStates:
