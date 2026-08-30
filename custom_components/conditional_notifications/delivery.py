@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from copy import deepcopy
 from typing import Any
 
@@ -11,6 +12,8 @@ from homeassistant.helpers.template import Template
 
 from .const import DOMAIN
 from .models import NotificationRecord, parse_datetime
+
+DELIVERY_TIMEOUT_SECONDS = 30
 
 
 async def async_render(
@@ -22,7 +25,8 @@ async def async_render(
         friendly_trigger["timestamp"] = parse_datetime(friendly_trigger["timestamp"])
     return str(
         template.async_render(
-            {"trigger": friendly_trigger, "notification": record.public_dict()}, parse_result=False
+            {"trigger": friendly_trigger, "notification": record.public_dict()},
+            parse_result=False,
         )
     )
 
@@ -65,6 +69,34 @@ def _notify_payload(title: str, message: str, delivery: dict[str, Any]) -> dict[
     return payload
 
 
+async def _async_service_call(
+    hass: HomeAssistant,
+    domain: str,
+    service: str,
+    data: dict[str, Any],
+    *,
+    target: dict[str, Any] | None = None,
+) -> None:
+    """Bound one provider call so a stuck target cannot wedge a delivery forever."""
+    async with asyncio.timeout(DELIVERY_TIMEOUT_SECONDS):
+        if target is None:
+            await hass.services.async_call(domain, service, data, blocking=True)
+        else:
+            await hass.services.async_call(
+                domain,
+                service,
+                data,
+                blocking=True,
+                target=target,
+            )
+
+
+def _error_text(err: Exception) -> str:
+    if isinstance(err, TimeoutError):
+        return f"Timed out after {DELIVERY_TIMEOUT_SECONDS} seconds"
+    return str(err)[:300]
+
+
 async def async_deliver(
     hass: HomeAssistant,
     record: NotificationRecord,
@@ -90,47 +122,62 @@ async def async_deliver(
             results.append({"channel": "persistent_notification", "success": True})
         except Exception as err:
             results.append(
-                {"channel": "persistent_notification", "success": False, "error": str(err)[:300]}
+                {
+                    "channel": "persistent_notification",
+                    "success": False,
+                    "error": _error_text(err),
+                }
             )
     for entity_id in delivery.get("notify_entities", []):
         try:
             # Home Assistant's notify.send_message entity service intentionally
             # exposes only message/title. Extended Companion App data belongs to
             # legacy notify.mobile_app_* services below.
-            await hass.services.async_call(
+            await _async_service_call(
+                hass,
                 "notify",
                 "send_message",
                 entity_payload,
-                blocking=True,
                 target={"entity_id": entity_id},
             )
             results.append({"channel": entity_id, "success": True})
         except Exception as err:
-            results.append({"channel": entity_id, "success": False, "error": str(err)[:300]})
+            results.append(
+                {"channel": entity_id, "success": False, "error": _error_text(err)}
+            )
     for entity_id in delivery.get("assist_satellites", []):
         try:
             # Assist satellites are an announcement channel rather than notify
             # entities. Speak the message only; the visual title is intentionally
             # not repeated aloud.
-            await hass.services.async_call(
+            await _async_service_call(
+                hass,
                 "assist_satellite",
                 "announce",
                 {"message": message},
-                blocking=True,
                 target={"entity_id": entity_id},
             )
             results.append({"channel": entity_id, "success": True})
         except Exception as err:
-            results.append({"channel": entity_id, "success": False, "error": str(err)[:300]})
+            results.append(
+                {"channel": entity_id, "success": False, "error": _error_text(err)}
+            )
     for service in delivery.get("notify_services", []):
         try:
             domain, service_name = service.split(".", 1) if "." in service else ("notify", service)
             if domain != "notify":
                 raise ValueError("only notify services are allowed")
-            await hass.services.async_call("notify", service_name, service_payload, blocking=True)
+            await _async_service_call(
+                hass,
+                "notify",
+                service_name,
+                service_payload,
+            )
             results.append({"channel": f"notify.{service_name}", "success": True})
         except Exception as err:
-            results.append({"channel": service, "success": False, "error": str(err)[:300]})
+            results.append(
+                {"channel": service, "success": False, "error": _error_text(err)}
+            )
     if not results:
         results.append(
             {"channel": "none", "success": False, "error": "No delivery channel configured"}
