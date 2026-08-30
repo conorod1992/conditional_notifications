@@ -80,6 +80,33 @@ test("connection ready supersedes a stale initial load", async () => {
   assert.deepEqual(context.history, [{event:"fresh"}]);
 });
 
+test("connection ready supersedes a stale refresh and restores live updates", async () => {
+  const staleRefresh = new Promise(() => {});
+  let subscriptions = 0;
+  const connection = {
+    subscribeMessage: async () => {
+      subscriptions += 1;
+      return () => {};
+    },
+  };
+  const context = contextWith({
+    loaded: true,
+    refreshPromise: staleRefresh,
+    refreshGeneration: 3,
+    records: [{id:"old"}],
+    hass: {
+      connection,
+      callWS: async ({type}) => type.endsWith("/list") ? [{id:"fresh"}] : [{event:"fresh"}],
+    },
+  });
+
+  await context.handleConnectionReady();
+
+  assert.deepEqual(context.records, [{id:"fresh"}]);
+  assert.equal(subscriptions, 1);
+  assert.equal(typeof context.unsubscribe, "function");
+});
+
 test("refresh failures preserve the last good data and are handled", async () => {
   const previousRecords = [{id:"existing"}];
   const previousHistory = [{event:"existing"}];
