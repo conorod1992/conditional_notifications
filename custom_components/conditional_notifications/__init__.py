@@ -21,20 +21,25 @@ _BASE_PANEL_URL = "/conditional_notifications_panel_base.js"
 _STATUS_PANEL_URL = "/conditional_notifications_panel_status.js"
 _CORRELATION_PANEL_URL = "/conditional_notifications_panel_correlation.js"
 _LIFECYCLE_PANEL_URL = "/conditional_notifications_panel_lifecycle.js"
-_PANEL_ASSET_REVISION = "bootstrap1"
+_PANEL_ASSET_REVISION = "concurrency1"
 
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConditionalNotificationsConfigEntry
 ) -> bool:
     """Set up the sole config entry."""
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    domain_data.setdefault("subscribers", set())
+
     manager = LifecycleNotificationManager(hass, dict(entry.options))
     await manager.async_initialize()
     entry.runtime_data = manager
-    hass.data.setdefault(DOMAIN, {})["manager"] = manager
+    domain_data["manager"] = manager
 
     async_register_services(hass, manager)
-    async_register_websocket(hass)
+    if not domain_data.get("websocket_registered"):
+        async_register_websocket(hass)
+        domain_data["websocket_registered"] = True
     entry.async_on_unload(async_register_llm_api(hass, manager))
 
     if manager.options.get("panel_enabled", True):
@@ -85,6 +90,7 @@ async def async_setup_entry(
 
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    manager.broadcast_reload()
     return True
 
 
@@ -101,5 +107,7 @@ async def async_unload_entry(
         return False
     await entry.runtime_data.async_shutdown()
     async_unregister_services(hass)
-    hass.data.pop(DOMAIN, None)
+    domain_data = hass.data.get(DOMAIN)
+    if domain_data is not None and domain_data.get("manager") is entry.runtime_data:
+        domain_data.pop("manager", None)
     return True
