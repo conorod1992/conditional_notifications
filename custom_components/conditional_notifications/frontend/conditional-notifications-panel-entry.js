@@ -1,8 +1,8 @@
-const correlationUrl = typeof window === "undefined"
-  ? "./conditional-notifications-panel-correlation.js"
-  : "/conditional_notifications_panel_correlation.js";
+const lifecycleUrl = typeof window === "undefined"
+  ? "./conditional-notifications-panel-lifecycle.js"
+  : "/conditional_notifications_panel_lifecycle.js";
 
-const { ConditionalNotificationsPanel } = await import(correlationUrl);
+const { ConditionalNotificationsPanel } = await import(lifecycleUrl);
 const panel = ConditionalNotificationsPanel.prototype;
 const originalHydrateEditor = panel.hydrateEditor;
 
