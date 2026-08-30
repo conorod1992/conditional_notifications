@@ -8,8 +8,9 @@ from copy import deepcopy
 from datetime import timedelta
 from typing import Any
 
+from homeassistant.components.zone.condition import zone as zone_condition
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import ConditionError, HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.template import Template, TemplateError
@@ -159,7 +160,7 @@ class NotificationManager:
                 continue
             normalized.pop("enabled", None)
             record.definition = normalized
-            await self.async_rebuild(record)
+            await self.async_rebuild(record, prove_current_durations=True)
         if quarantined:
             await self.store.async_save()
 
@@ -505,8 +506,53 @@ class NotificationManager:
         self._event("updated", record)
         return record.public_dict(dt_util.now())
 
+    def _seed_current_duration(
+        self,
+        runtime: RuntimeSubscriptions,
+        definition: dict[str, Any],
+        index: int,
+        accepted: Any,
+    ) -> None:
+        """Begin a fresh proof period when a state `for` trigger is already true."""
+        if definition["type"] != "state" or "to" not in definition or not definition.get("for"):
+            return
+        entity_id = definition["entity_id"]
+        attribute = definition.get("attribute")
+        expected = definition["to"]
+        state = self.hass.states.get(entity_id)
+        if state is None or state_value(state, attribute) != expected:
+            return
+        context = {
+            "type": "state",
+            "trigger_index": index,
+            "entity_id": entity_id,
+            "friendly_name": state.attributes.get("friendly_name", entity_id),
+            "from_state": None,
+            "to_state": state_value(state, attribute),
+            "attribute": attribute,
+            "matched_current_state": True,
+        }
+
+        def duration_done() -> None:
+            current = self.hass.states.get(entity_id)
+            if current is None or state_value(current, attribute) != expected:
+                return
+            current_context = deepcopy(context)
+            current_context["timestamp"] = dt_util.now().isoformat()
+            accepted(current_context)
+
+        runtime.schedule_duration(
+            index,
+            duration_seconds(definition.get("for")),
+            duration_done,
+        )
+
     async def async_rebuild(
-        self, record: NotificationRecord, *, allow_current: bool = False
+        self,
+        record: NotificationRecord,
+        *,
+        allow_current: bool = False,
+        prove_current_durations: bool = False,
     ) -> None:
         if self._is_shutting_down():
             return
@@ -558,6 +604,8 @@ class NotificationManager:
                 self._schedule_task(self._async_trigger(record_id, revision, context))
 
             attach_trigger(runtime, definition, index, accepted)
+            if prove_current_durations:
+                self._seed_current_duration(runtime, definition, index, accepted)
         if resolve_definition := record.definition.get("resolve_when"):
 
             def resolved(
@@ -604,13 +652,14 @@ class NotificationManager:
                 actual = None
             matched = numeric_matches(actual, definition)
         else:
-            zone = self.hass.states.get(definition["zone_entity_id"])
-            zone_name = (
-                zone.attributes.get("friendly_name")
-                if zone
-                else definition["zone_entity_id"].split(".", 1)[-1].replace("_", " ")
-            )
-            inside = current.state.casefold() == str(zone_name).casefold()
+            try:
+                inside = zone_condition(
+                    self.hass,
+                    definition["zone_entity_id"],
+                    current,
+                )
+            except ConditionError:
+                return None
             matched = inside if definition["event"] == "enter" else not inside
             actual = current.state
         if not matched:

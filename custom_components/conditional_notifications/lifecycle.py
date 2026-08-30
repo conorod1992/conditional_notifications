@@ -107,13 +107,21 @@ class LifecycleNotificationManager(NotificationManager):
         await super()._async_trigger(record_id, revision, combined)
 
     async def async_rebuild(
-        self, record: NotificationRecord, *, allow_current: bool = False
+        self,
+        record: NotificationRecord,
+        *,
+        allow_current: bool = False,
+        prove_current_durations: bool = False,
     ) -> None:
         # Partial correlations are deliberately in-memory only. A rebuild or
         # restart starts a fresh correlation window rather than joining events
         # across an uncertain subscription gap.
         self._clear_correlation(record.id)
-        await super().async_rebuild(record, allow_current=allow_current)
+        await super().async_rebuild(
+            record,
+            allow_current=allow_current,
+            prove_current_durations=prove_current_durations,
+        )
 
     async def _async_match_current(self, record: NotificationRecord) -> None:
         """Seed every currently matching state trigger for all-within correlation."""

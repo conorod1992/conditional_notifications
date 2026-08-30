@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from copy import deepcopy
 from datetime import time
@@ -23,6 +24,26 @@ class DefinitionError(ValueError):
 
 def _error(field: str, message: str) -> Never:
     raise DefinitionError(field, message)
+
+
+def _finite_number(value: Any, path: str) -> float:
+    if isinstance(value, bool):
+        _error(path, "must be a finite number")
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        _error(path, "must be a finite number")
+    if not math.isfinite(number):
+        _error(path, "must be a finite number")
+    return number
+
+
+def _strict_bool(data: dict[str, Any], key: str, path: str, *, default: bool | None = None) -> None:
+    if key in data:
+        if not isinstance(data[key], bool):
+            _error(path, "must be true or false")
+    elif default is not None:
+        data[key] = default
 
 
 def _duration(data: dict[str, Any], key: str) -> None:
@@ -64,13 +85,10 @@ def _validate_trigger(
     elif kind == "numeric_state":
         if "above" not in result and "below" not in result:
             _error(path, "a numeric trigger needs above or below")
-        try:
-            if "above" in result:
-                result["above"] = float(result["above"])
-            if "below" in result:
-                result["below"] = float(result["below"])
-        except (TypeError, ValueError):
-            _error(path, "numeric thresholds must be numbers")
+        if "above" in result:
+            result["above"] = _finite_number(result["above"], f"{path}.above")
+        if "below" in result:
+            result["below"] = _finite_number(result["below"], f"{path}.below")
         if "above" in result and "below" in result and result["above"] >= result["below"]:
             _error(path, "above must be less than below")
     elif kind == "zone":
@@ -106,8 +124,10 @@ def _validate_condition(condition: dict[str, Any], path: str) -> dict[str, Any]:
         _error(path, f"contains unsupported fields: {', '.join(sorted(extra))}")
     if kind in {"state", "numeric_state", "zone"} and not result.get("entity_id"):
         _error(f"{path}.entity_id", "is required")
-    if kind == "state" and "state" not in result:
-        _error(f"{path}.state", "is required")
+    if kind == "state":
+        if "state" not in result:
+            _error(f"{path}.state", "is required")
+        _strict_bool(result, "negate", f"{path}.negate")
     if kind == "numeric_state":
         return _validate_trigger({**result, "type": "numeric_state"}, path)
     if kind == "zone" and not str(result.get("zone_entity_id", "")).startswith("zone."):
@@ -274,6 +294,8 @@ def validate_definition(data: dict[str, Any], *, partial: bool = False) -> dict[
         _error("repeat_policy", "must be once, every, or limited")
     result["repeat_policy"] = policy
     if policy == "limited":
+        if isinstance(result.get("max_notifications"), bool):
+            _error("max_notifications", "must be a positive integer")
         try:
             result["max_notifications"] = int(result.get("max_notifications", 0))
         except (TypeError, ValueError):
@@ -300,14 +322,26 @@ def validate_definition(data: dict[str, Any], *, partial: bool = False) -> dict[
         window = result["active_window"]
         if not isinstance(window, dict):
             _error("active_window", "must be an object")
+        if extra := set(window) - {"start", "end", "weekdays"}:
+            _error(
+                "active_window",
+                f"contains unsupported fields: {', '.join(sorted(extra))}",
+            )
         try:
             time.fromisoformat(window["start"])
             time.fromisoformat(window["end"])
         except (KeyError, TypeError, ValueError):
             _error("active_window", "start and end must be valid local times")
         weekdays = window.get("weekdays", list(WEEKDAYS))
-        if not weekdays or any(day not in WEEKDAYS for day in weekdays):
-            _error("active_window.weekdays", "contains an invalid weekday")
+        if (
+            not isinstance(weekdays, list)
+            or not weekdays
+            or any(day not in WEEKDAYS for day in weekdays)
+        ):
+            _error(
+                "active_window.weekdays",
+                "must be a non-empty list of valid weekdays",
+            )
         window["weekdays"] = list(dict.fromkeys(weekdays))
     if result.get("resolve_when"):
         result["resolve_when"] = _validate_trigger(
@@ -318,7 +352,13 @@ def validate_definition(data: dict[str, Any], *, partial: bool = False) -> dict[
             _error(key, "is required")
         if key in result and len(str(result[key])) > (255 if key == "title" else 4000):
             _error(key, "is too long")
-    result.setdefault("notify_on_expiry", False)
+    for key, default in (
+        ("notify_on_expiry", False),
+        ("clear_on_resolve", True),
+        ("match_current_state", False),
+        ("enabled", True),
+    ):
+        _strict_bool(result, key, key, default=default)
     if result["notify_on_expiry"] and not result.get("expires_at"):
         _error("notify_on_expiry", "requires expires_at")
     delivery = result.setdefault("delivery", {"use_defaults": True})
@@ -334,6 +374,8 @@ def validate_definition(data: dict[str, Any], *, partial: bool = False) -> dict[
     }
     if set(delivery) - allowed_delivery:
         _error("delivery", "contains unsupported delivery fields")
+    _strict_bool(delivery, "use_defaults", "delivery.use_defaults")
+    _strict_bool(delivery, "persistent_notification", "delivery.persistent_notification")
     if "notify_services" in delivery and not isinstance(delivery["notify_services"], list):
         _error("delivery.notify_services", "must be a list")
     for service in delivery.get("notify_services", []):
@@ -351,6 +393,4 @@ def validate_definition(data: dict[str, Any], *, partial: bool = False) -> dict[
             _error("delivery.assist_satellites", "may contain only Assist satellite entity IDs")
     if "companion" in delivery:
         delivery["companion"] = _validate_companion(delivery["companion"])
-    result.setdefault("enabled", True)
-    result.setdefault("match_current_state", False)
     return result

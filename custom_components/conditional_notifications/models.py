@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+import math
 from datetime import datetime, time, timedelta
 from typing import Any
 from uuid import uuid4
+
+from homeassistant.util import dt as dt_util
 
 from .const import WEEKDAYS
 
@@ -29,16 +32,29 @@ def parse_datetime(value: str | None) -> datetime | None:
 
 
 def parse_duration(value: Any) -> timedelta:
-    """Parse seconds or a HA-style duration mapping."""
-    if value in (None, "", 0, 0.0):
+    """Parse finite seconds or a HA-style duration mapping."""
+    if value in (None, "", 0, 0.0) and not isinstance(value, bool):
         return timedelta(0)
+    if isinstance(value, bool):
+        raise ValueError("duration must not be a boolean")
     if isinstance(value, int | float):
-        return timedelta(seconds=float(value))
+        seconds = float(value)
+        if not math.isfinite(seconds):
+            raise ValueError("duration must be finite")
+        return timedelta(seconds=seconds)
     if isinstance(value, dict):
         allowed = {"days", "hours", "minutes", "seconds"}
         if set(value) - allowed:
             raise ValueError("duration contains unsupported fields")
-        return timedelta(**{key: float(val) for key, val in value.items()})
+        normalized: dict[str, float] = {}
+        for key, raw in value.items():
+            if isinstance(raw, bool):
+                raise ValueError("duration fields must not be booleans")
+            number = float(raw)
+            if not math.isfinite(number):
+                raise ValueError("duration fields must be finite")
+            normalized[key] = number
+        return timedelta(**normalized)
     raise ValueError("duration must be seconds or a duration object")
 
 
@@ -155,7 +171,7 @@ class NotificationRecord:
         return max(0, int(self.definition["max_notifications"]) - self.notification_count)
 
     def public_dict(self, now: datetime | None = None) -> dict[str, Any]:
-        current = now or datetime.now().astimezone()
+        current = now or dt_util.now()
         result = self.as_dict()
         result["currently_active"] = self.is_temporally_active(current)
         result["remaining_notifications"] = self.remaining()

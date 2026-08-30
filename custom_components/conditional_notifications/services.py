@@ -88,7 +88,7 @@ def async_register_services(hass: HomeAssistant, manager: LifecycleNotificationM
         "create",
         create,
         schema=vol.Schema({vol.Required("definition"): dict}),
-        supports_response=SupportsResponse.ONLY,
+        supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
         DOMAIN,
@@ -113,21 +113,23 @@ def async_register_services(hass: HomeAssistant, manager: LifecycleNotificationM
             action,
             invoke,
             schema=vol.Schema(REFERENCE_SCHEMA),
-            supports_response=SupportsResponse.ONLY,
+            supports_response=(
+                SupportsResponse.ONLY if action == "get" else SupportsResponse.OPTIONAL
+            ),
         )
     hass.services.async_register(
         DOMAIN,
         "update",
         invoke,
         schema=vol.Schema({**REFERENCE_SCHEMA, vol.Required("changes"): dict}),
-        supports_response=SupportsResponse.ONLY,
+        supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
         DOMAIN,
         "duplicate",
         invoke,
         schema=vol.Schema({**REFERENCE_SCHEMA, vol.Optional("name"): cv.string}),
-        supports_response=SupportsResponse.ONLY,
+        supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
         DOMAIN,
@@ -136,14 +138,14 @@ def async_register_services(hass: HomeAssistant, manager: LifecycleNotificationM
         schema=vol.Schema(
             {vol.Required("trigger_id"): cv.string, vol.Optional("data", default={}): dict}
         ),
-        supports_response=SupportsResponse.ONLY,
+        supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
         DOMAIN,
         "clear_history",
         clear_history,
         schema=vol.Schema({vol.Optional("notification_id"): cv.string}),
-        supports_response=SupportsResponse.ONLY,
+        supports_response=SupportsResponse.OPTIONAL,
     )
 
 

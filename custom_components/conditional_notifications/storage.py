@@ -24,6 +24,7 @@ class _VersionedStore(Store[dict[str, Any]]):
         if old_major_version == 0:
             return {
                 "records": old_data.get("records", old_data.get("watches", [])),
+                "invalid_records": old_data.get("invalid_records", []),
                 "history": old_data.get("history", []),
             }
         raise NotImplementedError
@@ -43,7 +44,9 @@ class NotificationStore:
     async def async_load(self) -> None:
         data = await self._store.async_load() or {}
         self.records = {}
-        self.invalid_records = []
+        self.invalid_records = [
+            item for item in data.get("invalid_records", []) if isinstance(item, dict)
+        ]
         for item in data.get("records", []):
             try:
                 if not isinstance(item, dict) or not item.get("id"):
@@ -53,6 +56,12 @@ class NotificationStore:
                 if isinstance(item, dict):
                     self.invalid_records.append(item)
                 _LOGGER.warning("Ignoring malformed Conditional Notifications record: %s", err)
+                continue
+            if record.id in self.records:
+                self.invalid_records.append(item)
+                _LOGGER.warning(
+                    "Ignoring duplicate Conditional Notifications record id %s", record.id
+                )
                 continue
             self.records[record.id] = record
 
@@ -70,8 +79,8 @@ class NotificationStore:
     async def async_save(self) -> None:
         await self._store.async_save(
             {
-                "records": [record.as_dict() for record in self.records.values()]
-                + self.invalid_records,
+                "records": [record.as_dict() for record in self.records.values()],
+                "invalid_records": list(self.invalid_records),
                 "history": [
                     {
                         "id": item.id,

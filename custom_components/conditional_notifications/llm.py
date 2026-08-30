@@ -12,7 +12,7 @@ from homeassistant.util.json import JsonObjectType
 
 from .const import DOMAIN, NAME
 from .lifecycle import LifecycleNotificationManager
-from .manager import AmbiguousReference
+from .manager import AmbiguousReference, NotFound
 from .models import NotificationRecord
 
 
@@ -45,6 +45,8 @@ class _Tool(llm.Tool):
             )
         except AmbiguousReference as err:
             return {"error": "ambiguous", "candidates": err.candidates}
+        except NotFound as err:
+            return {"error": "not_found", "message": str(err)}
 
 
 class CreateTool(_Tool):
