@@ -6,7 +6,9 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
+from homeassistant.components.zone.condition import zone as zone_condition
 from homeassistant.core import Event, HomeAssistant, State, callback
+from homeassistant.exceptions import ConditionError
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.util import dt as dt_util
 
@@ -62,6 +64,16 @@ def _numeric_match(
         previous,
         current,
     )
+
+
+def _zone_match(hass: HomeAssistant, zone_entity_id: str, state: State | None) -> bool:
+    """Match a state against a zone using Home Assistant's canonical semantics."""
+    if state is None or (zone_state := hass.states.get(zone_entity_id)) is None:
+        return False
+    try:
+        return zone_condition(hass, zone_state, state)
+    except ConditionError:
+        return False
 
 
 class RuntimeSubscriptions:
@@ -149,21 +161,22 @@ def attach_trigger(
                     "attribute": definition.get("attribute"),
                 }
             else:
-                zone_state = hass.states.get(definition["zone_entity_id"])
+                zone_entity_id = definition["zone_entity_id"]
+                zone_state = hass.states.get(zone_entity_id)
                 zone_name = (
                     zone_state.attributes.get("friendly_name")
                     if zone_state
-                    else definition["zone_entity_id"].split(".", 1)[-1].replace("_", " ")
+                    else zone_entity_id.split(".", 1)[-1].replace("_", " ")
                 )
-                old_inside = old is not None and old.state.lower() == str(zone_name).lower()
-                new_inside = new.state.lower() == str(zone_name).lower()
+                old_inside = _zone_match(hass, zone_entity_id, old)
+                new_inside = _zone_match(hass, zone_entity_id, new)
                 matches = (definition["event"] == "enter" and not old_inside and new_inside) or (
                     definition["event"] == "leave" and old_inside and not new_inside
                 )
                 context = {
                     "entity_id": entity_id,
                     "friendly_name": _friendly(new, entity_id),
-                    "zone_entity_id": definition["zone_entity_id"],
+                    "zone_entity_id": zone_entity_id,
                     "zone": zone_name,
                     "event": definition["event"],
                 }

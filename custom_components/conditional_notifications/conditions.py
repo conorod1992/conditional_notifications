@@ -7,6 +7,7 @@ from typing import Any
 
 from homeassistant.components.zone.condition import zone as zone_condition
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConditionError
 
 from .const import UNKNOWN_STATES, WEEKDAYS
 
@@ -49,7 +50,8 @@ def async_evaluate_conditions(
                 else (state.state if state else None)
             )
             expected = definition["state"]
-            passed = actual not in UNKNOWN_STATES and (
+            known = actual is not None and actual not in UNKNOWN_STATES
+            passed = known and (
                 actual != expected if definition.get("negate") else actual == expected
             )
         elif kind == "numeric_state":
@@ -59,7 +61,7 @@ def async_evaluate_conditions(
         elif kind == "zone":
             try:
                 passed = zone_condition(hass, definition["zone_entity_id"], definition["entity_id"])
-            except (AttributeError, ValueError):
+            except (ConditionError, AttributeError, ValueError):
                 passed = False
         elif kind == "time":
             local = now.timetz().replace(tzinfo=None)
