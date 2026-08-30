@@ -15,6 +15,7 @@ from homeassistant.util import dt as dt_util
 
 from .conditions import is_unknown_state, numeric_matches, state_value
 from .const import DOMAIN
+from .security import NAMED_TRIGGER_ADMIN_SCOPE
 
 
 def _subset(expected: dict[str, Any], actual: dict[str, Any]) -> bool:
@@ -122,6 +123,22 @@ class RuntimeSubscriptions:
             action()
 
         self._duration[index] = async_call_later(self.hass, seconds, finished)
+
+
+def _named_event_authorized(runtime: RuntimeSubscriptions, event: Event) -> bool:
+    """Return whether a named-trigger event may activate this record."""
+    user_id = event.context.user_id
+    if user_id is None or event.data.get(NAMED_TRIGGER_ADMIN_SCOPE) is True:
+        return True
+    manager = runtime.hass.data.get(DOMAIN, {}).get("manager")
+    if manager is None:
+        return False
+    record = manager.store.records.get(runtime.notification_id)
+    return bool(
+        record is not None
+        and record.revision == runtime.revision
+        and record.owner_id == user_id
+    )
 
 
 def attach_trigger(
@@ -244,7 +261,14 @@ def attach_trigger(
                 return
             dispatch({"event_type": event.event_type, "event_data": dict(event.data)})
         elif event.data.get("trigger_id") == definition["trigger_id"]:
-            dispatch({"trigger_id": definition["trigger_id"], "event_data": dict(event.data)})
+            if not _named_event_authorized(runtime, event):
+                return
+            public_data = {
+                key: value
+                for key, value in event.data.items()
+                if key != NAMED_TRIGGER_ADMIN_SCOPE
+            }
+            dispatch({"trigger_id": definition["trigger_id"], "event_data": public_data})
 
     runtime.add(hass.bus.async_listen(event_type, event_received))
 
