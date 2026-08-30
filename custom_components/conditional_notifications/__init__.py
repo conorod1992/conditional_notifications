@@ -20,7 +20,8 @@ type ConditionalNotificationsConfigEntry = ConfigEntry[LifecycleNotificationMana
 _BASE_PANEL_URL = "/conditional_notifications_panel_base.js"
 _STATUS_PANEL_URL = "/conditional_notifications_panel_status.js"
 _CORRELATION_PANEL_URL = "/conditional_notifications_panel_correlation.js"
-_PANEL_ASSET_REVISION = "editor3"
+_LIFECYCLE_PANEL_URL = "/conditional_notifications_panel_lifecycle.js"
+_PANEL_ASSET_REVISION = "editor4"
 
 
 async def async_setup_entry(
@@ -39,12 +40,18 @@ async def async_setup_entry(
     if manager.options.get("panel_enabled", True):
         panel_dir = Path(__file__).parent / "frontend"
         panel_file = panel_dir / "conditional-notifications-panel-entry.js"
+        lifecycle_panel_file = panel_dir / "conditional-notifications-panel-lifecycle.js"
         correlation_panel_file = panel_dir / "conditional-notifications-panel-correlation.js"
         status_panel_file = panel_dir / "conditional-notifications-panel-status.js"
         base_panel_file = panel_dir / "conditional-notifications-panel.js"
         await hass.http.async_register_static_paths(
             [
                 StaticPathConfig(PANEL_URL, str(panel_file), cache_headers=True),
+                StaticPathConfig(
+                    _LIFECYCLE_PANEL_URL,
+                    str(lifecycle_panel_file),
+                    cache_headers=False,
+                ),
                 StaticPathConfig(
                     _CORRELATION_PANEL_URL,
                     str(correlation_panel_file),

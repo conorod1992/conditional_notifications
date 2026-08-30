@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "lint": "node --check ../custom_components/conditional_notifications/frontend/conditional-notifications-panel.js && node --check ../custom_components/conditional_notifications/frontend/conditional-notifications-panel-status.js && node --check ../custom_components/conditional_notifications/frontend/conditional-notifications-panel-correlation.js",
+    "lint": "node --check ../custom_components/conditional_notifications/frontend/conditional-notifications-panel.js && node --check ../custom_components/conditional_notifications/frontend/conditional-notifications-panel-status.js && node --check ../custom_components/conditional_notifications/frontend/conditional-notifications-panel-correlation.js && node --check ../custom_components/conditional_notifications/frontend/conditional-notifications-panel-lifecycle.js && node --check ../custom_components/conditional_notifications/frontend/conditional-notifications-panel-entry.js",
     "test": "node --test tests/*.test.mjs"
   }
 }
