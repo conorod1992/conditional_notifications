@@ -157,7 +157,7 @@ panel.refresh = function(force = false) {
   promise = (async () => {
     try {
       const [records, history] = await withTimeout(Promise.all([
-        hass.callWS({type:`${WS}/list`, query:this.search || undefined}),
+        hass.callWS({type:`${WS}/list`}),
         hass.callWS({type:`${WS}/history`}),
       ]));
       if (

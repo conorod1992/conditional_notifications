@@ -69,7 +69,10 @@ class NotificationStore:
             try:
                 if not isinstance(item, dict):
                     raise ValueError("history item must be an object")
-                self.history.append(HistoryItem(**item))
+                history_item = HistoryItem(**item)
+                if parse_datetime(history_item.timestamp) is None:
+                    raise ValueError("history timestamp is required")
+                self.history.append(history_item)
             except (TypeError, ValueError) as err:
                 _LOGGER.warning(
                     "Ignoring malformed Conditional Notifications history item: %s", err
