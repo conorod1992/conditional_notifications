@@ -4,68 +4,29 @@ on:
     branches: [main]
   pull_request:
 permissions:
-  contents: write
+  contents: read
 jobs:
   backend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: fix/lifecycle-concurrency-hardening
-          fetch-depth: 0
       - uses: actions/setup-python@v5
         with: {python-version: "3.14", cache: pip}
-      - run: pip install ruff==0.12.7
-      - name: Restore omitted manager method and verify public surface
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import ast
-          import subprocess
-
-          path = Path("custom_components/conditional_notifications/manager.py")
-          text = path.read_text()
-          if "    async def async_clear_history(" not in text:
-              text += '''
-
-              async def async_clear_history(self, notification_id: str | None = None) -> dict[str, Any]:
-                  before = len(self.store.history)
-                  if notification_id:
-                      self.store.history = [
-                          item for item in self.store.history if item.notification_id != notification_id
-                      ]
-                  else:
-                      self.store.history.clear()
-                  await self.store.async_save()
-                  return {"removed": before - len(self.store.history)}
-          '''
-              path.write_text(text)
-
-          main_text = subprocess.check_output(
-              ["git", "show", "origin/main:custom_components/conditional_notifications/manager.py"],
-              text=True,
-          )
-          current_text = path.read_text()
-
-          def methods(source: str) -> set[str]:
-              tree = ast.parse(source)
-              cls = next(
-                  node for node in tree.body
-                  if isinstance(node, ast.ClassDef) and node.name == "NotificationManager"
-              )
-              return {
-                  node.name for node in cls.body
-                  if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
-              }
-
-          missing = methods(main_text) - methods(current_text)
-          if missing:
-              raise SystemExit(f"Manager rewrite still omits methods from main: {sorted(missing)}")
-          PY
-          ruff format custom_components/conditional_notifications/manager.py
-          git checkout origin/main -- .github/workflows/ci.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add custom_components/conditional_notifications/manager.py .github/workflows/ci.yml
-          git commit -m "fix: restore manager history API"
-          git push origin HEAD:fix/lifecycle-concurrency-hardening
+      - run: pip install -r requirements_test.txt
+      - run: ruff format --check .
+      - run: ruff check .
+      - run: mypy custom_components/conditional_notifications
+      - run: pytest --cov=custom_components.conditional_notifications --cov-report=term-missing
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: "22"}
+      - run: npm run lint
+        working-directory: frontend
+      - run: npm test
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - run: git diff --exit-code

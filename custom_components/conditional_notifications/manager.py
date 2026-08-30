@@ -1042,3 +1042,14 @@ class NotificationManager:
         )
         current = self.store.records.get(record.id)
         return current.public_dict(dt_util.now()) if current else {"id": record.id, "deleted": True}
+
+    async def async_clear_history(self, notification_id: str | None = None) -> dict[str, Any]:
+        before = len(self.store.history)
+        if notification_id:
+            self.store.history = [
+                item for item in self.store.history if item.notification_id != notification_id
+            ]
+        else:
+            self.store.history.clear()
+        await self.store.async_save()
+        return {"removed": before - len(self.store.history)}
