@@ -11,6 +11,7 @@ from homeassistant.helpers import config_validation as cv
 from .const import DOMAIN
 from .lifecycle import LifecycleNotificationManager
 from .manager import AmbiguousReference
+from .security import NAMED_TRIGGER_ADMIN_SCOPE, require_mutation_access
 
 REFERENCE_SCHEMA = {vol.Required("notification_id"): cv.string}
 
@@ -43,6 +44,10 @@ def async_register_services(hass: HomeAssistant, manager: LifecycleNotificationM
         action = call.service
         if action == "get":
             return record.public_dict()
+        if action == "duplicate":
+            return await manager.async_duplicate(record, user_id, call.data.get("name"))
+
+        require_mutation_access(record, user_id, is_admin)
         if action == "update":
             return await manager.async_update(record, dict(call.data["changes"]))
         if action == "delete":
@@ -57,8 +62,6 @@ def async_register_services(hass: HomeAssistant, manager: LifecycleNotificationM
             return await manager.async_set_enabled(record, False)
         if action == "rearm":
             return await manager.async_rearm(record)
-        if action == "duplicate":
-            return await manager.async_duplicate(record, user_id, call.data.get("name"))
         if action == "test":
             return await manager.async_test(record)
         if action == "trigger_now":
@@ -66,9 +69,19 @@ def async_register_services(hass: HomeAssistant, manager: LifecycleNotificationM
         raise ValueError(f"Unsupported action {action}")
 
     async def fire_named(call: ServiceCall) -> dict[str, Any]:
+        user_id, is_admin = await _identity(hass, call)
+        event_data: dict[str, Any] = {
+            "trigger_id": call.data["trigger_id"],
+            "data": call.data.get("data", {}),
+        }
+        # Named-trigger listeners use the Home Assistant context for same-owner
+        # calls. Only this service adds the reserved admin marker, so ordinary
+        # user-supplied data cannot elevate a named trigger to another owner.
+        if user_id is not None and is_admin:
+            event_data[NAMED_TRIGGER_ADMIN_SCOPE] = True
         hass.bus.async_fire(
             f"{DOMAIN}_named_trigger",
-            {"trigger_id": call.data["trigger_id"], "data": call.data.get("data", {})},
+            event_data,
             context=call.context,
         )
         return {"trigger_id": call.data["trigger_id"], "fired": True}
@@ -78,6 +91,7 @@ def async_register_services(hass: HomeAssistant, manager: LifecycleNotificationM
         notification_id = call.data.get("notification_id")
         if notification_id:
             record = manager.resolve(notification_id, user_id, is_admin)
+            require_mutation_access(record, user_id, is_admin)
             notification_id = record.id
         elif not is_admin:
             raise vol.Invalid("Only administrators may clear all history")
