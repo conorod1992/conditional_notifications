@@ -1,0 +1,48 @@
+name: Apply follow-up hardening
+
+on:
+  push:
+    branches:
+      - fix/follow-up-validation-auth-hardening
+    paths:
+      - .github/workflows/apply-follow-up-hardening.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/follow-up-validation-auth-hardening
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Apply asserted source changes
+        run: python tools/apply_follow_up_hardening.py
+      - name: Format and lint changed Python
+        run: |
+          python -m pip install ruff==0.12.7
+          ruff format \
+            custom_components/conditional_notifications/validation.py \
+            custom_components/conditional_notifications/manager.py \
+            custom_components/conditional_notifications/delivery.py \
+            custom_components/conditional_notifications/storage.py \
+            tests/test_follow_up_hardening.py
+          ruff check --fix \
+            custom_components/conditional_notifications/validation.py \
+            custom_components/conditional_notifications/manager.py \
+            custom_components/conditional_notifications/delivery.py \
+            custom_components/conditional_notifications/storage.py \
+            tests/test_follow_up_hardening.py
+      - name: Commit final patch only
+        run: |
+          git rm tools/apply_follow_up_hardening.py .github/workflows/apply-follow-up-hardening.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: harden validation authorization and recovery"
+          git push
