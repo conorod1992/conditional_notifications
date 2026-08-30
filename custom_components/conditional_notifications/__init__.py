@@ -21,7 +21,7 @@ _BASE_PANEL_URL = "/conditional_notifications_panel_base.js"
 _STATUS_PANEL_URL = "/conditional_notifications_panel_status.js"
 _CORRELATION_PANEL_URL = "/conditional_notifications_panel_correlation.js"
 _LIFECYCLE_PANEL_URL = "/conditional_notifications_panel_lifecycle.js"
-_PANEL_ASSET_REVISION = "concurrency2"
+_PANEL_ASSET_REVISION = "concurrency3"
 
 
 async def async_setup_entry(
