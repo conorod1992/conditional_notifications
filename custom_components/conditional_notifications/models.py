@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
 import math
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, time, timedelta
 from typing import Any
 from uuid import uuid4
