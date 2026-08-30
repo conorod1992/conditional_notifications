@@ -151,14 +151,10 @@ async def test_resolution_waits_for_initial_delivery_commit(manager, monkeypatch
     monkeypatch.setattr(
         "custom_components.conditional_notifications.manager.async_deliver", deliver
     )
-    monkeypatch.setattr(
-        "custom_components.conditional_notifications.manager.async_clear", Mock()
-    )
+    monkeypatch.setattr("custom_components.conditional_notifications.manager.async_clear", Mock())
     record = NotificationRecord.create(definition(resolve=True), "u1")
     manager.store.records[record.id] = record
-    manager.hass.states.states["binary_sensor.motion"] = SimpleNamespace(
-        state="on", attributes={}
-    )
+    manager.hass.states.states["binary_sensor.motion"] = SimpleNamespace(state="on", attributes={})
 
     trigger_task = asyncio.create_task(
         manager._async_trigger(record.id, record.revision, {"type": "state"})
@@ -169,9 +165,7 @@ async def test_resolution_waits_for_initial_delivery_commit(manager, monkeypatch
     assert record.active_occurrence
     assert record.status == "active"
 
-    manager.hass.states.states["binary_sensor.motion"] = SimpleNamespace(
-        state="off", attributes={}
-    )
+    manager.hass.states.states["binary_sensor.motion"] = SimpleNamespace(state="off", attributes={})
     finish.set()
     await trigger_task
 

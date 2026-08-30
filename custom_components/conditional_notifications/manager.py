@@ -528,9 +528,7 @@ class NotificationManager:
                 async_call_later(
                     self.hass,
                     delay,
-                    lambda _: self._schedule_task(
-                        self._async_expire(record.id, record.revision)
-                    ),
+                    lambda _: self._schedule_task(self._async_expire(record.id, record.revision)),
                 )
             )
         if (
@@ -754,9 +752,7 @@ class NotificationManager:
                 record.active_occurrence = bool(record.definition.get("resolve_when"))
                 record.status = "active" if record.active_occurrence else "triggered"
                 policy = record.definition["repeat_policy"]
-                completed = policy == "once" or (
-                    policy == "limited" and record.remaining() == 0
-                )
+                completed = policy == "once" or (policy == "limited" and record.remaining() == 0)
                 if completed and not record.active_occurrence:
                     record.enabled = False
                     record.status = "disabled"
@@ -798,9 +794,7 @@ class NotificationManager:
                     "occurrence": occurrence,
                 }
             except (TemplateError, ValueError) as err:
-                results = [
-                    {"channel": "template", "success": False, "error": str(err)[:300]}
-                ]
+                results = [{"channel": "template", "success": False, "error": str(err)[:300]}]
                 delivered = False
                 event = "template_error"
                 summary = "Notification template could not be rendered"
@@ -832,9 +826,7 @@ class NotificationManager:
                 self._add_history(current, event, summary, details)
                 if delivery_key is not None:
                     self._delivery_store().discard(delivery_key)
-                    pending_resolution = self._pending_resolution_store().pop(
-                        delivery_key, None
-                    )
+                    pending_resolution = self._pending_resolution_store().pop(delivery_key, None)
                     self._delivery_task_store().pop(delivery_key, None)
                 await self.store.async_save()
             if delivered:
@@ -883,9 +875,7 @@ class NotificationManager:
                 return
             record.active_occurrence = False
             policy = record.definition["repeat_policy"]
-            complete = policy == "once" or (
-                policy == "limited" and record.remaining() == 0
-            )
+            complete = policy == "once" or (policy == "limited" and record.remaining() == 0)
             record.enabled = not complete
             record.status = "resolved" if complete else "watching"
             self._add_history(
@@ -955,8 +945,7 @@ class NotificationManager:
             if record.revision != revision or record.status == "expired":
                 return
             should_notify = (
-                bool(record.definition.get("notify_on_expiry"))
-                and not record.qualifying_match_seen
+                bool(record.definition.get("notify_on_expiry")) and not record.qualifying_match_seen
             )
             record.status = "expired"
             record.enabled = False
@@ -976,9 +965,7 @@ class NotificationManager:
                 )
                 message = await async_render(
                     self.hass,
-                    record.definition.get(
-                        "expiry_message", "No qualifying event occurred."
-                    ),
+                    record.definition.get("expiry_message", "No qualifying event occurred."),
                     trigger,
                     record,
                 )
@@ -987,11 +974,7 @@ class NotificationManager:
                 )
                 async with self._lock(record_id):
                     current = self.store.records.get(record_id)
-                    if (
-                        not current
-                        or current.revision != revision
-                        or current.status != "expired"
-                    ):
+                    if not current or current.revision != revision or current.status != "expired":
                         return
                     success = any(result["success"] for result in results)
                     self._add_history(
@@ -1006,11 +989,7 @@ class NotificationManager:
             except (TemplateError, ValueError) as err:
                 async with self._lock(record_id):
                     current = self.store.records.get(record_id)
-                    if (
-                        not current
-                        or current.revision != revision
-                        or current.status != "expired"
-                    ):
+                    if not current or current.revision != revision or current.status != "expired":
                         return
                     self._add_history(
                         current,
@@ -1062,8 +1041,4 @@ class NotificationManager:
             },
         )
         current = self.store.records.get(record.id)
-        return (
-            current.public_dict(dt_util.now())
-            if current
-            else {"id": record.id, "deleted": True}
-        )
+        return current.public_dict(dt_util.now()) if current else {"id": record.id, "deleted": True}
