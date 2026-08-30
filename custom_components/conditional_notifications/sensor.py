@@ -58,7 +58,5 @@ class ConditionalNotificationsSensor(SensorEntity):
             "active_count": self.native_value,
             "paused_count": sum(1 for r in records if r.paused),
             "expired_count": sum(1 for r in records if r.status == "expired"),
-            "last_triggered": {"id": last.id, "name": last.name, "at": last.last_trigger_at}
-            if last
-            else None,
+            "last_triggered_at": last.last_trigger_at if last else None,
         }

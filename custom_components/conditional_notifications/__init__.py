@@ -21,7 +21,7 @@ _BASE_PANEL_URL = "/conditional_notifications_panel_base.js"
 _STATUS_PANEL_URL = "/conditional_notifications_panel_status.js"
 _CORRELATION_PANEL_URL = "/conditional_notifications_panel_correlation.js"
 _LIFECYCLE_PANEL_URL = "/conditional_notifications_panel_lifecycle.js"
-_PANEL_ASSET_REVISION = "concurrency3"
+_PANEL_ASSET_REVISION = "robustness1"
 
 
 async def async_setup_entry(
@@ -49,26 +49,34 @@ async def async_setup_entry(
         correlation_panel_file = panel_dir / "conditional-notifications-panel-correlation.js"
         status_panel_file = panel_dir / "conditional-notifications-panel-status.js"
         base_panel_file = panel_dir / "conditional-notifications-panel.js"
-        await hass.http.async_register_static_paths(
-            [
-                # Keep every integration-owned module revalidated. The module URL
-                # is still versioned below, but stale custom-panel JavaScript is
-                # much harder to diagnose than the tiny bandwidth saving here.
-                StaticPathConfig(PANEL_URL, str(panel_file), cache_headers=False),
-                StaticPathConfig(
-                    _LIFECYCLE_PANEL_URL,
-                    str(lifecycle_panel_file),
-                    cache_headers=False,
-                ),
-                StaticPathConfig(
-                    _CORRELATION_PANEL_URL,
-                    str(correlation_panel_file),
-                    cache_headers=False,
-                ),
-                StaticPathConfig(_STATUS_PANEL_URL, str(status_panel_file), cache_headers=False),
-                StaticPathConfig(_BASE_PANEL_URL, str(base_panel_file), cache_headers=False),
-            ]
-        )
+        if not domain_data.get("static_paths_registered"):
+            await hass.http.async_register_static_paths(
+                [
+                    # Static routes live for the Home Assistant process lifetime.
+                    StaticPathConfig(PANEL_URL, str(panel_file), cache_headers=False),
+                    StaticPathConfig(
+                        _LIFECYCLE_PANEL_URL,
+                        str(lifecycle_panel_file),
+                        cache_headers=False,
+                    ),
+                    StaticPathConfig(
+                        _CORRELATION_PANEL_URL,
+                        str(correlation_panel_file),
+                        cache_headers=False,
+                    ),
+                    StaticPathConfig(
+                        _STATUS_PANEL_URL,
+                        str(status_panel_file),
+                        cache_headers=False,
+                    ),
+                    StaticPathConfig(
+                        _BASE_PANEL_URL,
+                        str(base_panel_file),
+                        cache_headers=False,
+                    ),
+                ]
+            )
+            domain_data["static_paths_registered"] = True
         frontend.async_register_built_in_panel(
             hass,
             component_name="custom",
