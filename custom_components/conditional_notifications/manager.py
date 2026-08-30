@@ -20,7 +20,7 @@ from .const import DEFAULT_OPTIONS, DOMAIN, EVENTS, SIGNAL_CHANGED, UNKNOWN_STAT
 from .delivery import async_clear, async_deliver, async_render
 from .models import HistoryItem, NotificationRecord, duration_seconds, parse_datetime, utc_iso
 from .storage import NotificationStore
-from .triggers import RuntimeSubscriptions, attach_trigger, schedule_task
+from .triggers import RuntimeSubscriptions, attach_trigger
 from .validation import DefinitionError, validate_definition
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,6 +38,10 @@ class AmbiguousReference(HomeAssistantError):
         self.candidates = candidates
 
 
+class RevisionConflict(HomeAssistantError):
+    """A mutation was based on stale state or raced active delivery."""
+
+
 class NotificationManager:
     """Own records, subscriptions, timers, history, and delivery transitions."""
 
@@ -48,8 +52,94 @@ class NotificationManager:
         self._runtimes: dict[str, RuntimeSubscriptions] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._subscribers: set[Any] = set()
+        self._tasks: set[asyncio.Task[Any]] = set()
+        self._shutting_down = False
+        self._inflight_deliveries: set[tuple[str, int, str]] = set()
+        self._delivery_tasks: dict[tuple[str, int, str], asyncio.Task[Any]] = {}
+        self._pending_resolutions: dict[tuple[str, int, str], dict[str, Any]] = {}
+
+    def _task_store(self) -> set[asyncio.Task[Any]]:
+        store = getattr(self, "_tasks", None)
+        if store is None:
+            store = set()
+            self._tasks = store
+        return store
+
+    def _delivery_store(self) -> set[tuple[str, int, str]]:
+        store = getattr(self, "_inflight_deliveries", None)
+        if store is None:
+            store = set()
+            self._inflight_deliveries = store
+        return store
+
+    def _delivery_task_store(self) -> dict[tuple[str, int, str], asyncio.Task[Any]]:
+        store = getattr(self, "_delivery_tasks", None)
+        if store is None:
+            store = {}
+            self._delivery_tasks = store
+        return store
+
+    def _pending_resolution_store(
+        self,
+    ) -> dict[tuple[str, int, str], dict[str, Any]]:
+        store = getattr(self, "_pending_resolutions", None)
+        if store is None:
+            store = {}
+            self._pending_resolutions = store
+        return store
+
+    def _is_shutting_down(self) -> bool:
+        return bool(getattr(self, "_shutting_down", False))
+
+    def _schedule_task(self, coroutine: Any) -> asyncio.Task[Any] | None:
+        """Create a task owned by this manager so unload can cancel it safely."""
+        if self._is_shutting_down():
+            close = getattr(coroutine, "close", None)
+            if close is not None:
+                close()
+            return None
+        task = self.hass.async_create_task(coroutine, eager_start=True)
+        self._task_store().add(task)
+        task.add_done_callback(self._task_store().discard)
+        return task
+
+    def _require_current_record(self, record: NotificationRecord) -> NotificationRecord:
+        current = self.store.records.get(record.id)
+        if current is not record:
+            raise NotFound(f"Conditional notification '{record.id}' no longer exists")
+        return current
+
+    @staticmethod
+    def _require_expected_revision(
+        record: NotificationRecord, expected_revision: int | None
+    ) -> None:
+        if expected_revision is not None and record.revision != expected_revision:
+            raise RevisionConflict(
+                "Conditional notification changed while it was being edited; "
+                "reload it and try again"
+            )
+
+    def _ensure_not_delivering(self, record_id: str) -> None:
+        if any(key[0] == record_id for key in self._delivery_store()):
+            raise RevisionConflict(
+                "Conditional notification is currently delivering; wait for delivery to "
+                "finish and try again"
+            )
+
+    def _clear_delivery_state(self, record_id: str) -> list[asyncio.Task[Any]]:
+        keys = [key for key in self._delivery_store() if key[0] == record_id]
+        tasks: list[asyncio.Task[Any]] = []
+        current_task = asyncio.current_task()
+        for key in keys:
+            self._delivery_store().discard(key)
+            self._pending_resolution_store().pop(key, None)
+            task = self._delivery_task_store().pop(key, None)
+            if task is not None and task is not current_task:
+                tasks.append(task)
+        return tasks
 
     async def async_initialize(self) -> None:
+        self._shutting_down = False
         await self.store.async_load()
         self._prune_history()
         quarantined = False
@@ -74,9 +164,21 @@ class NotificationManager:
             await self.store.async_save()
 
     async def async_shutdown(self) -> None:
+        self._shutting_down = True
         for runtime in self._runtimes.values():
             runtime.cancel()
         self._runtimes.clear()
+
+        tasks = list(self._task_store())
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._task_store().clear()
+        self._delivery_store().clear()
+        self._delivery_task_store().clear()
+        self._pending_resolution_store().clear()
+        self._subscribers.clear()
         await self.store.async_save()
 
     @callback
@@ -90,17 +192,28 @@ class NotificationManager:
         return unsubscribe
 
     def _broadcast(self, event: str, record: NotificationRecord | None, record_id: str) -> None:
+        if self._is_shutting_down():
+            return
         payload = {
             "event": event,
             "notification_id": record_id,
             "record": record.public_dict(dt_util.now()) if record else None,
             "owner_id": record.owner_id if record else None,
         }
-        for listener in list(self._subscribers):
+        listeners = set(self._subscribers)
+        domain_data = self.hass.data.get(DOMAIN, {})
+        listeners.update(domain_data.get("subscribers", ()))
+        for listener in list(listeners):
             listener(payload)
         async_dispatcher_send(self.hass, SIGNAL_CHANGED)
 
+    def broadcast_reload(self) -> None:
+        """Prompt persistent WebSocket subscribers to refresh after manager replacement."""
+        self._broadcast("reloaded", None, "")
+
     def _event(self, event: str, record: NotificationRecord) -> None:
+        if self._is_shutting_down():
+            return
         if event in EVENTS:
             self.hass.bus.async_fire(
                 f"{DOMAIN}_{event}",
@@ -285,9 +398,16 @@ class NotificationManager:
         return record.public_dict(dt_util.now())
 
     async def async_update(
-        self, record: NotificationRecord, changes: dict[str, Any]
+        self,
+        record: NotificationRecord,
+        changes: dict[str, Any],
+        *,
+        expected_revision: int | None = None,
     ) -> dict[str, Any]:
         async with self._lock(record.id):
+            self._require_current_record(record)
+            self._require_expected_revision(record, expected_revision)
+            self._ensure_not_delivering(record.id)
             merged = deepcopy(record.definition)
             merged.update(changes)
             merged["name"] = changes.get("name", record.name)
@@ -331,19 +451,25 @@ class NotificationManager:
     async def async_duplicate(
         self, record: NotificationRecord, owner_id: str | None, name: str | None = None
     ) -> dict[str, Any]:
-        definition = deepcopy(record.definition)
-        definition["name"] = name or f"{record.name} copy"
-        definition.pop("semantic_key", None)
+        async with self._lock(record.id):
+            self._require_current_record(record)
+            definition = deepcopy(record.definition)
+            definition["name"] = name or f"{record.name} copy"
+            definition.pop("semantic_key", None)
         return await self.async_create(definition, owner_id)
 
     async def async_delete(self, record: NotificationRecord) -> dict[str, Any]:
+        delivery_tasks: list[asyncio.Task[Any]] = []
         async with self._lock(record.id):
+            self._require_current_record(record)
             if runtime := self._runtimes.pop(record.id, None):
                 runtime.cancel()
             self.store.records.pop(record.id, None)
-            self._locks.pop(record.id, None)
+            delivery_tasks = self._clear_delivery_state(record.id)
             self._add_history(record, "deleted", "Conditional notification deleted")
             await self.store.async_save()
+        for task in delivery_tasks:
+            task.cancel()
         self.hass.bus.async_fire(
             f"{DOMAIN}_deleted", {"notification_id": record.id, "name": record.name}
         )
@@ -352,6 +478,8 @@ class NotificationManager:
 
     async def async_set_paused(self, record: NotificationRecord, paused: bool) -> dict[str, Any]:
         async with self._lock(record.id):
+            self._require_current_record(record)
+            self._ensure_not_delivering(record.id)
             record.paused = paused
             record.status = "paused" if paused else ("watching" if record.enabled else "disabled")
             record.updated_at = utc_iso()
@@ -365,6 +493,8 @@ class NotificationManager:
 
     async def async_set_enabled(self, record: NotificationRecord, enabled: bool) -> dict[str, Any]:
         async with self._lock(record.id):
+            self._require_current_record(record)
+            self._ensure_not_delivering(record.id)
             record.enabled = enabled
             record.status = "paused" if record.paused else ("watching" if enabled else "disabled")
             record.updated_at = utc_iso()
@@ -378,6 +508,8 @@ class NotificationManager:
     async def async_rebuild(
         self, record: NotificationRecord, *, allow_current: bool = False
     ) -> None:
+        if self._is_shutting_down():
+            return
         current_record = self.store.records.get(record.id)
         if current_record is not record or current_record.revision != record.revision:
             return
@@ -396,8 +528,8 @@ class NotificationManager:
                 async_call_later(
                     self.hass,
                     delay,
-                    lambda _: schedule_task(
-                        self.hass, self._async_expire(record.id, record.revision)
+                    lambda _: self._schedule_task(
+                        self._async_expire(record.id, record.revision)
                     ),
                 )
             )
@@ -414,7 +546,7 @@ class NotificationManager:
                 async_call_later(
                     self.hass,
                     (available - now).total_seconds(),
-                    lambda _: schedule_task(self.hass, self.async_rebuild(record)),
+                    lambda _: self._schedule_task(self.async_rebuild(record)),
                 )
             )
             return
@@ -425,14 +557,9 @@ class NotificationManager:
                 record_id: str = record.id,
                 revision: int = record.revision,
             ) -> None:
-                schedule_task(self.hass, self._async_trigger(record_id, revision, context))
+                self._schedule_task(self._async_trigger(record_id, revision, context))
 
-            attach_trigger(
-                runtime,
-                definition,
-                index,
-                accepted,
-            )
+            attach_trigger(runtime, definition, index, accepted)
         if resolve_definition := record.definition.get("resolve_when"):
 
             def resolved(
@@ -440,7 +567,7 @@ class NotificationManager:
                 record_id: str = record.id,
                 revision: int = record.revision,
             ) -> None:
-                schedule_task(self.hass, self._async_resolve(record_id, revision, context))
+                self._schedule_task(self._async_resolve(record_id, revision, context))
 
             attach_trigger(
                 runtime,
@@ -531,139 +658,234 @@ class NotificationManager:
         await self.store.async_save()
         self._broadcast("ignored", record, record.id)
 
+    async def _async_rollback_cancelled_delivery(
+        self,
+        record_id: str,
+        revision: int,
+        accepted_at: str,
+        completed: bool,
+    ) -> None:
+        async with self._lock(record_id):
+            current = self.store.records.get(record_id)
+            if (
+                current is None
+                or current.revision != revision
+                or current.last_accepted_at != accepted_at
+            ):
+                return
+            current.notification_count = max(0, current.notification_count - 1)
+            current.last_accepted_at = None
+            current.active_occurrence = False
+            if completed:
+                current.enabled = True
+            current.status = (
+                "paused" if current.paused else ("watching" if current.enabled else "disabled")
+            )
+            await self.store.async_save()
+
     async def _async_trigger(self, record_id: str, revision: int, trigger: dict[str, Any]) -> None:
+        if self._is_shutting_down():
+            return
         record = self.store.records.get(record_id)
         if not record:
             return
-        async with self._lock(record_id):
-            if record.revision != revision or not record.enabled or record.paused:
-                return
-            now = dt_util.now()
-            if not record.is_temporally_active(now) or record.status in {
-                "expired",
-                "disabled",
-                "resolved",
-            }:
-                await self._async_persist_ignored(record, "Outside the active period")
-                return
-            if record.active_occurrence:
-                await self._async_persist_ignored(
-                    record, "Waiting for the active occurrence to resolve"
+        delivery_key: tuple[str, int, str] | None = None
+        accepted_at: str | None = None
+        completed = False
+        pending_resolution: dict[str, Any] | None = None
+        try:
+            async with self._lock(record_id):
+                if record.revision != revision or not record.enabled or record.paused:
+                    return
+                now = dt_util.now()
+                if not record.is_temporally_active(now) or record.status in {
+                    "expired",
+                    "disabled",
+                    "resolved",
+                }:
+                    await self._async_persist_ignored(record, "Outside the active period")
+                    return
+                if record.active_occurrence:
+                    await self._async_persist_ignored(
+                        record, "Waiting for the active occurrence to resolve"
+                    )
+                    return
+                if record.definition["repeat_policy"] == "limited" and record.remaining() == 0:
+                    return
+                debounce = duration_seconds(record.definition.get("debounce"))
+                last_trigger_at = parse_datetime(record.last_trigger_at)
+                if (
+                    debounce
+                    and last_trigger_at
+                    and now < last_trigger_at + timedelta(seconds=debounce)
+                ):
+                    await self._async_persist_ignored(record, "Ignored by debounce")
+                    return
+                record.last_trigger_at = now.isoformat()
+                record.last_trigger = trigger
+                cooldown = duration_seconds(record.definition.get("cooldown"))
+                last_accepted_at = parse_datetime(record.last_accepted_at)
+                if (
+                    cooldown
+                    and last_accepted_at
+                    and now < last_accepted_at + timedelta(seconds=cooldown)
+                ):
+                    await self._async_persist_ignored(record, "Cooldown is still active")
+                    return
+                conditions_passed, condition_results = async_evaluate_conditions(
+                    self.hass, record.definition.get("conditions", []), now
                 )
-                return
-            if record.definition["repeat_policy"] == "limited" and record.remaining() == 0:
-                return
-            debounce = duration_seconds(record.definition.get("debounce"))
-            last_trigger_at = parse_datetime(record.last_trigger_at)
-            if debounce and last_trigger_at and now < last_trigger_at + timedelta(seconds=debounce):
-                await self._async_persist_ignored(record, "Ignored by debounce")
-                return
-            record.last_trigger_at = now.isoformat()
-            record.last_trigger = trigger
-            cooldown = duration_seconds(record.definition.get("cooldown"))
-            last_accepted_at = parse_datetime(record.last_accepted_at)
-            if (
-                cooldown
-                and last_accepted_at
-                and now < last_accepted_at + timedelta(seconds=cooldown)
-            ):
-                await self._async_persist_ignored(record, "Cooldown is still active")
-                return
-            conditions_passed, condition_results = async_evaluate_conditions(
-                self.hass, record.definition.get("conditions", []), now
-            )
-            if not conditions_passed:
-                record.last_ignored_reason = "A condition did not pass"
+                if not conditions_passed:
+                    record.last_ignored_reason = "A condition did not pass"
+                    self._add_history(
+                        record,
+                        "ignored",
+                        "Trigger ignored because a condition did not pass",
+                        {"conditions": condition_results},
+                    )
+                    await self.store.async_save()
+                    self._broadcast("ignored", record, record.id)
+                    return
+                accepted_at = now.isoformat()
+                record.last_accepted_at = accepted_at
+                record.qualifying_match_seen = True
+                record.notification_count += 1
+                record.last_ignored_reason = None
+                record.active_occurrence = bool(record.definition.get("resolve_when"))
+                record.status = "active" if record.active_occurrence else "triggered"
+                policy = record.definition["repeat_policy"]
+                completed = policy == "once" or (
+                    policy == "limited" and record.remaining() == 0
+                )
+                if completed and not record.active_occurrence:
+                    record.enabled = False
+                    record.status = "disabled"
+                occurrence = record.notification_count
                 self._add_history(
                     record,
-                    "ignored",
-                    "Trigger ignored because a condition did not pass",
-                    {"conditions": condition_results},
+                    "matched",
+                    f"Qualifying occurrence {occurrence}",
+                    {"trigger": trigger, "conditions": condition_results, "occurrence": occurrence},
                 )
+                delivery_key = (record_id, revision, accepted_at)
+                self._delivery_store().add(delivery_key)
+                task = asyncio.current_task()
+                if task is not None:
+                    self._delivery_task_store()[delivery_key] = task
+                # Reserve the occurrence durably before provider side effects. A total
+                # delivery/template failure rolls the count and completion state back.
                 await self.store.async_save()
-                self._broadcast("ignored", record, record.id)
-                return
-            accepted_at = now.isoformat()
-            record.last_accepted_at = accepted_at
-            record.qualifying_match_seen = True
-            record.notification_count += 1
-            record.last_ignored_reason = None
-            record.active_occurrence = bool(record.definition.get("resolve_when"))
-            record.status = "active" if record.active_occurrence else "triggered"
-            policy = record.definition["repeat_policy"]
-            completed = policy == "once" or (policy == "limited" and record.remaining() == 0)
-            if completed and not record.active_occurrence:
-                record.enabled = False
-                record.status = "disabled"
-            occurrence = record.notification_count
-            self._add_history(
-                record,
-                "matched",
-                f"Qualifying occurrence {occurrence}",
-                {"trigger": trigger, "conditions": condition_results, "occurrence": occurrence},
-            )
-            # Reserve the occurrence durably before provider side effects. A total
-            # delivery/template failure rolls the count and completion state back.
-            await self.store.async_save()
-        try:
-            title = await async_render(self.hass, record.definition["title"], trigger, record)
-            message = await async_render(self.hass, record.definition["message"], trigger, record)
-            results = await async_deliver(
-                self.hass, record, title, message, self.options["delivery"]
-            )
-            delivered = any(r["success"] for r in results)
-            event = "notification_sent" if delivered else "delivery_failed"
-            summary = (
-                "Notification delivery completed" if delivered else "All delivery channels failed"
-            )
-            details = {
-                "trigger": trigger,
-                "title": title,
-                "message": message,
-                "delivery": results,
-                "occurrence": occurrence,
-            }
-        except (TemplateError, ValueError) as err:
-            results = [{"channel": "template", "success": False, "error": str(err)[:300]}]
-            delivered = False
-            event, summary = "template_error", "Notification template could not be rendered"
-            details = {"trigger": trigger, "error": str(err)[:300], "occurrence": occurrence}
-        async with self._lock(record_id):
-            current = self.store.records.get(record_id)
-            if not current or current.revision != revision:
-                return
-            current.last_delivery = results
-            if not delivered:
-                current.notification_count = max(0, current.notification_count - 1)
-                if current.last_accepted_at == accepted_at:
-                    current.last_accepted_at = None
-                if current.active_occurrence:
-                    current.active_occurrence = False
-                if completed:
-                    current.enabled = True
-                current.status = (
-                    "paused" if current.paused else ("watching" if current.enabled else "disabled")
+            try:
+                title = await async_render(self.hass, record.definition["title"], trigger, record)
+                message = await async_render(
+                    self.hass, record.definition["message"], trigger, record
                 )
-            elif not current.active_occurrence and current.enabled:
-                current.status = "watching"
-            self._add_history(current, event, summary, details)
-            await self.store.async_save()
-        await self._async_resolve_if_current(current)
-        await self.async_rebuild(current)
-        latest = self.store.records.get(record_id)
-        if latest is current and latest.revision == revision:
-            self._event("triggered", latest)
+                results = await async_deliver(
+                    self.hass, record, title, message, self.options["delivery"]
+                )
+                delivered = any(r["success"] for r in results)
+                event = "notification_sent" if delivered else "delivery_failed"
+                summary = (
+                    "Notification delivery completed"
+                    if delivered
+                    else "All delivery channels failed"
+                )
+                details = {
+                    "trigger": trigger,
+                    "title": title,
+                    "message": message,
+                    "delivery": results,
+                    "occurrence": occurrence,
+                }
+            except (TemplateError, ValueError) as err:
+                results = [
+                    {"channel": "template", "success": False, "error": str(err)[:300]}
+                ]
+                delivered = False
+                event = "template_error"
+                summary = "Notification template could not be rendered"
+                details = {
+                    "trigger": trigger,
+                    "error": str(err)[:300],
+                    "occurrence": occurrence,
+                }
+            async with self._lock(record_id):
+                current = self.store.records.get(record_id)
+                if not current or current.revision != revision:
+                    return
+                current.last_delivery = results
+                if not delivered:
+                    current.notification_count = max(0, current.notification_count - 1)
+                    if current.last_accepted_at == accepted_at:
+                        current.last_accepted_at = None
+                    if current.active_occurrence:
+                        current.active_occurrence = False
+                    if completed:
+                        current.enabled = True
+                    current.status = (
+                        "paused"
+                        if current.paused
+                        else ("watching" if current.enabled else "disabled")
+                    )
+                elif not current.active_occurrence and current.enabled:
+                    current.status = "watching"
+                self._add_history(current, event, summary, details)
+                if delivery_key is not None:
+                    self._delivery_store().discard(delivery_key)
+                    pending_resolution = self._pending_resolution_store().pop(
+                        delivery_key, None
+                    )
+                    self._delivery_task_store().pop(delivery_key, None)
+                await self.store.async_save()
+            if delivered:
+                resolution_type = current.definition.get("resolve_when", {}).get("type")
+                if pending_resolution is not None and resolution_type in {"event", "named"}:
+                    await self._async_resolve(record_id, revision, pending_resolution)
+                else:
+                    await self._async_resolve_if_current(current)
+            if self._is_shutting_down():
+                return
+            await self.async_rebuild(current)
+            latest = self.store.records.get(record_id)
+            if latest is current and latest.revision == revision:
+                self._event("triggered", latest)
+        except asyncio.CancelledError:
+            if accepted_at is not None:
+                await self._async_rollback_cancelled_delivery(
+                    record_id, revision, accepted_at, completed
+                )
+            raise
+        finally:
+            if delivery_key is not None:
+                self._delivery_store().discard(delivery_key)
+                self._pending_resolution_store().pop(delivery_key, None)
+                self._delivery_task_store().pop(delivery_key, None)
 
     async def _async_resolve(self, record_id: str, revision: int, trigger: dict[str, Any]) -> None:
+        if self._is_shutting_down():
+            return
         record = self.store.records.get(record_id)
         if not record:
             return
         async with self._lock(record_id):
             if record.revision != revision or not record.active_occurrence:
                 return
+            inflight = next(
+                (
+                    key
+                    for key in self._delivery_store()
+                    if key[0] == record_id and key[1] == revision
+                ),
+                None,
+            )
+            if inflight is not None:
+                self._pending_resolution_store()[inflight] = deepcopy(trigger)
+                return
             record.active_occurrence = False
             policy = record.definition["repeat_policy"]
-            complete = policy == "once" or (policy == "limited" and record.remaining() == 0)
+            complete = policy == "once" or (
+                policy == "limited" and record.remaining() == 0
+            )
             record.enabled = not complete
             record.status = "resolved" if complete else "watching"
             self._add_history(
@@ -712,6 +934,8 @@ class NotificationManager:
                         {"phase": "resolution", "error": str(err)[:300]},
                     )
                     await self.store.async_save()
+        if self._is_shutting_down():
+            return
         current = self.store.records.get(record_id)
         if not current or current.revision != revision:
             return
@@ -721,6 +945,8 @@ class NotificationManager:
             self._event("resolved", latest)
 
     async def _async_expire(self, record_id: str, revision: int) -> None:
+        if self._is_shutting_down():
+            return
         record = self.store.records.get(record_id)
         if not record:
             return
@@ -729,7 +955,8 @@ class NotificationManager:
             if record.revision != revision or record.status == "expired":
                 return
             should_notify = (
-                bool(record.definition.get("notify_on_expiry")) and not record.qualifying_match_seen
+                bool(record.definition.get("notify_on_expiry"))
+                and not record.qualifying_match_seen
             )
             record.status = "expired"
             record.enabled = False
@@ -749,7 +976,9 @@ class NotificationManager:
                 )
                 message = await async_render(
                     self.hass,
-                    record.definition.get("expiry_message", "No qualifying event occurred."),
+                    record.definition.get(
+                        "expiry_message", "No qualifying event occurred."
+                    ),
                     trigger,
                     record,
                 )
@@ -758,7 +987,11 @@ class NotificationManager:
                 )
                 async with self._lock(record_id):
                     current = self.store.records.get(record_id)
-                    if not current or current.revision != revision or current.status != "expired":
+                    if (
+                        not current
+                        or current.revision != revision
+                        or current.status != "expired"
+                    ):
                         return
                     success = any(result["success"] for result in results)
                     self._add_history(
@@ -773,7 +1006,11 @@ class NotificationManager:
             except (TemplateError, ValueError) as err:
                 async with self._lock(record_id):
                     current = self.store.records.get(record_id)
-                    if not current or current.revision != revision or current.status != "expired":
+                    if (
+                        not current
+                        or current.revision != revision
+                        or current.status != "expired"
+                    ):
                         return
                     self._add_history(
                         current,
@@ -782,11 +1019,14 @@ class NotificationManager:
                         {"error": str(err)[:300]},
                     )
                     await self.store.async_save()
+        if self._is_shutting_down():
+            return
         current = self.store.records.get(record_id)
         if current and current.revision == revision and current.status == "expired":
             self._event("expired", current)
 
     async def async_test(self, record: NotificationRecord) -> dict[str, Any]:
+        self._require_current_record(record)
         trigger = record.last_trigger or {
             "type": "test",
             "friendly_name": "Test trigger",
@@ -795,7 +1035,12 @@ class NotificationManager:
         title = await async_render(self.hass, record.definition["title"], trigger, record)
         message = await async_render(self.hass, record.definition["message"], trigger, record)
         results = await async_deliver(
-            self.hass, record, f"Test: {title}", message, self.options["delivery"], test=True
+            self.hass,
+            record,
+            f"Test: {title}",
+            message,
+            self.options["delivery"],
+            test=True,
         )
         return {
             "id": record.id,
@@ -806,6 +1051,7 @@ class NotificationManager:
         }
 
     async def async_trigger_now(self, record: NotificationRecord) -> dict[str, Any]:
+        self._require_current_record(record)
         await self._async_trigger(
             record.id,
             record.revision,
@@ -816,15 +1062,8 @@ class NotificationManager:
             },
         )
         current = self.store.records.get(record.id)
-        return current.public_dict(dt_util.now()) if current else {"id": record.id, "deleted": True}
-
-    async def async_clear_history(self, notification_id: str | None = None) -> dict[str, Any]:
-        before = len(self.store.history)
-        if notification_id:
-            self.store.history = [
-                item for item in self.store.history if item.notification_id != notification_id
-            ]
-        else:
-            self.store.history.clear()
-        await self.store.async_save()
-        return {"removed": before - len(self.store.history)}
+        return (
+            current.public_dict(dt_util.now())
+            if current
+            else {"id": record.id, "deleted": True}
+        )
