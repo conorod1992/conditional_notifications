@@ -20,7 +20,7 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import re
-          from textwrap import dedent
+          from textwrap import dedent, indent
 
           ROOT = Path("custom_components/conditional_notifications")
 
@@ -38,44 +38,42 @@ jobs:
                   raise SystemExit(f"{path}: expected at least {count} occurrence(s), got {matches}: {old[:100]!r}")
               path.write_text(text.replace(old, new, count))
 
-          # Static HTTP routes survive config-entry reloads; register them only once.
           init = ROOT / "__init__.py"
           sub(
               init,
               r'^        await hass\.http\.async_register_static_paths\(\n.*?^        frontend\.async_register_built_in_panel\(',
-              dedent('''\
-                      if not domain_data.get("static_paths_registered"):
-                          await hass.http.async_register_static_paths(
-                              [
-                                  # Static routes live for the Home Assistant process lifetime.
-                                  StaticPathConfig(PANEL_URL, str(panel_file), cache_headers=False),
-                                  StaticPathConfig(
-                                      _LIFECYCLE_PANEL_URL,
-                                      str(lifecycle_panel_file),
-                                      cache_headers=False,
-                                  ),
-                                  StaticPathConfig(
-                                      _CORRELATION_PANEL_URL,
-                                      str(correlation_panel_file),
-                                      cache_headers=False,
-                                  ),
-                                  StaticPathConfig(
-                                      _STATUS_PANEL_URL,
-                                      str(status_panel_file),
-                                      cache_headers=False,
-                                  ),
-                                  StaticPathConfig(
-                                      _BASE_PANEL_URL,
-                                      str(base_panel_file),
-                                      cache_headers=False,
-                                  ),
-                              ]
-                          )
-                          domain_data["static_paths_registered"] = True
-                      frontend.async_register_built_in_panel('''),
+              indent(dedent('''\
+                  if not domain_data.get("static_paths_registered"):
+                      await hass.http.async_register_static_paths(
+                          [
+                              # Static routes live for the Home Assistant process lifetime.
+                              StaticPathConfig(PANEL_URL, str(panel_file), cache_headers=False),
+                              StaticPathConfig(
+                                  _LIFECYCLE_PANEL_URL,
+                                  str(lifecycle_panel_file),
+                                  cache_headers=False,
+                              ),
+                              StaticPathConfig(
+                                  _CORRELATION_PANEL_URL,
+                                  str(correlation_panel_file),
+                                  cache_headers=False,
+                              ),
+                              StaticPathConfig(
+                                  _STATUS_PANEL_URL,
+                                  str(status_panel_file),
+                                  cache_headers=False,
+                              ),
+                              StaticPathConfig(
+                                  _BASE_PANEL_URL,
+                                  str(base_panel_file),
+                                  cache_headers=False,
+                              ),
+                          ]
+                      )
+                      domain_data["static_paths_registered"] = True
+                  frontend.async_register_built_in_panel('''), "        "),
           )
 
-          # HA-timezone presentation and finite, non-boolean durations.
           models = ROOT / "models.py"
           replace(models, "from dataclasses import asdict, dataclass, field\n", "from dataclasses import asdict, dataclass, field\nimport math\n")
           replace(models, "from uuid import uuid4\n\nfrom .const import WEEKDAYS\n", "from uuid import uuid4\n\nfrom homeassistant.util import dt as dt_util\n\nfrom .const import WEEKDAYS\n")
@@ -114,7 +112,6 @@ jobs:
           )
           replace(models, "        current = now or datetime.now().astimezone()\n", "        current = now or dt_util.now()\n")
 
-          # Strict validation for pathological inputs while keeping normal state values flexible.
           validation = ROOT / "validation.py"
           replace(validation, "import re\n", "import math\nimport re\n")
           replace(
@@ -138,11 +135,7 @@ jobs:
 
 
                   def _strict_bool(
-                      data: dict[str, Any],
-                      key: str,
-                      path: str,
-                      *,
-                      default: bool | None = None,
+                      data: dict[str, Any], key: str, path: str, *, default: bool | None = None
                   ) -> None:
                       if key in data:
                           if not isinstance(data[key], bool):
@@ -156,12 +149,12 @@ jobs:
           sub(
               validation,
               r'^        try:\n            if "above" in result:\n.*?^        except \(TypeError, ValueError\):\n            _error\(path, "numeric thresholds must be numbers"\)\n',
-              dedent('''\
-                          if "above" in result:
-                              result["above"] = _finite_number(result["above"], f"{path}.above")
-                          if "below" in result:
-                              result["below"] = _finite_number(result["below"], f"{path}.below")
-                  '''),
+              indent(dedent('''\
+                  if "above" in result:
+                      result["above"] = _finite_number(result["above"], f"{path}.above")
+                  if "below" in result:
+                      result["below"] = _finite_number(result["below"], f"{path}.below")
+                  '''), "        "),
           )
           replace(
               validation,
@@ -176,42 +169,42 @@ jobs:
           sub(
               validation,
               r'^        try:\n            time\.fromisoformat\(window\["start"\]\)\n.*?^        window\["weekdays"\] = list\(dict\.fromkeys\(weekdays\)\)\n',
-              dedent('''\
-                          if extra := set(window) - {"start", "end", "weekdays"}:
-                              _error(
-                                  "active_window",
-                                  f"contains unsupported fields: {', '.join(sorted(extra))}",
-                              )
-                          try:
-                              time.fromisoformat(window["start"])
-                              time.fromisoformat(window["end"])
-                          except (KeyError, TypeError, ValueError):
-                              _error("active_window", "start and end must be valid local times")
-                          weekdays = window.get("weekdays", list(WEEKDAYS))
-                          if (
-                              not isinstance(weekdays, list)
-                              or not weekdays
-                              or any(day not in WEEKDAYS for day in weekdays)
-                          ):
-                              _error(
-                                  "active_window.weekdays",
-                                  "must be a non-empty list of valid weekdays",
-                              )
-                          window["weekdays"] = list(dict.fromkeys(weekdays))
-                  '''),
+              indent(dedent('''\
+                  if extra := set(window) - {"start", "end", "weekdays"}:
+                      _error(
+                          "active_window",
+                          f"contains unsupported fields: {', '.join(sorted(extra))}",
+                      )
+                  try:
+                      time.fromisoformat(window["start"])
+                      time.fromisoformat(window["end"])
+                  except (KeyError, TypeError, ValueError):
+                      _error("active_window", "start and end must be valid local times")
+                  weekdays = window.get("weekdays", list(WEEKDAYS))
+                  if (
+                      not isinstance(weekdays, list)
+                      or not weekdays
+                      or any(day not in WEEKDAYS for day in weekdays)
+                  ):
+                      _error(
+                          "active_window.weekdays",
+                          "must be a non-empty list of valid weekdays",
+                      )
+                  window["weekdays"] = list(dict.fromkeys(weekdays))
+                  '''), "        "),
           )
           replace(
               validation,
               '    result.setdefault("notify_on_expiry", False)\n',
-              dedent('''\
-                      for key, default in (
-                          ("notify_on_expiry", False),
-                          ("clear_on_resolve", True),
-                          ("match_current_state", False),
-                          ("enabled", True),
-                      ):
-                          _strict_bool(result, key, key, default=default)
-                  '''),
+              indent(dedent('''\
+                  for key, default in (
+                      ("notify_on_expiry", False),
+                      ("clear_on_resolve", True),
+                      ("match_current_state", False),
+                      ("enabled", True),
+                  ):
+                      _strict_bool(result, key, key, default=default)
+                  '''), "    "),
           )
           replace(
               validation,
@@ -220,7 +213,6 @@ jobs:
           )
           replace(validation, '    result.setdefault("enabled", True)\n    result.setdefault("match_current_state", False)\n', "")
 
-          # Keep quarantined raw records outside the active record list and catch duplicate IDs.
           storage = ROOT / "storage.py"
           replace(storage, '                "history": old_data.get("history", []),\n', '                "invalid_records": old_data.get("invalid_records", []),\n                "history": old_data.get("history", []),\n')
           replace(storage, '        self.invalid_records = []\n        for item in data.get("records", []):\n', '        self.invalid_records = [\n            item for item in data.get("invalid_records", []) if isinstance(item, dict)\n        ]\n        for item in data.get("records", []):\n')
@@ -235,7 +227,6 @@ jobs:
               '                "records": [record.as_dict() for record in self.records.values()],\n                "invalid_records": list(self.invalid_records),\n',
           )
 
-          # The summary sensor is globally visible, so expose timing/counts but no record identity.
           sensor = ROOT / "sensor.py"
           sub(
               sensor,
@@ -243,13 +234,13 @@ jobs:
               '            "last_triggered_at": last.last_trigger_at if last else None,\n',
           )
 
-          # Mutation services remain usable as ordinary HA actions without response_variable.
           services = ROOT / "services.py"
-          text = services.read_text().replace(
-              "supports_response=SupportsResponse.ONLY",
-              "supports_response=SupportsResponse.OPTIONAL",
+          services.write_text(
+              services.read_text().replace(
+                  "supports_response=SupportsResponse.ONLY",
+                  "supports_response=SupportsResponse.OPTIONAL",
+              )
           )
-          services.write_text(text)
           sub(
               services,
               r'(DOMAIN,\n        "list",\n        list_records,\n        schema=.*?supports_response=)SupportsResponse\.OPTIONAL',
@@ -261,7 +252,6 @@ jobs:
               r'\1(\n                SupportsResponse.ONLY if action == "get" else SupportsResponse.OPTIONAL\n            )',
           )
 
-          # Fresh post-restart proof for state `for:` and canonical zone membership for resolution.
           manager = ROOT / "manager.py"
           replace(
               manager,
@@ -276,60 +266,60 @@ jobs:
           sub(
               manager,
               r'^    async def async_rebuild\(\n        self, record: NotificationRecord, \*, allow_current: bool = False\n    \) -> None:\n',
-              dedent('''\
-                      def _seed_current_duration(
-                          self,
-                          runtime: RuntimeSubscriptions,
-                          definition: dict[str, Any],
-                          index: int,
-                          accepted: Any,
-                      ) -> None:
-                          """Begin a fresh proof period when a state `for` trigger is already true."""
-                          if (
-                              definition["type"] != "state"
-                              or "to" not in definition
-                              or not definition.get("for")
-                          ):
+              indent(dedent('''\
+                  def _seed_current_duration(
+                      self,
+                      runtime: RuntimeSubscriptions,
+                      definition: dict[str, Any],
+                      index: int,
+                      accepted: Any,
+                  ) -> None:
+                      """Begin a fresh proof period when a state `for` trigger is already true."""
+                      if (
+                          definition["type"] != "state"
+                          or "to" not in definition
+                          or not definition.get("for")
+                      ):
+                          return
+                      entity_id = definition["entity_id"]
+                      attribute = definition.get("attribute")
+                      expected = definition["to"]
+                      state = self.hass.states.get(entity_id)
+                      if state is None or state_value(state, attribute) != expected:
+                          return
+                      context = {
+                          "type": "state",
+                          "trigger_index": index,
+                          "entity_id": entity_id,
+                          "friendly_name": state.attributes.get("friendly_name", entity_id),
+                          "from_state": None,
+                          "to_state": state_value(state, attribute),
+                          "attribute": attribute,
+                          "matched_current_state": True,
+                      }
+
+                      def duration_done() -> None:
+                          current = self.hass.states.get(entity_id)
+                          if current is None or state_value(current, attribute) != expected:
                               return
-                          entity_id = definition["entity_id"]
-                          attribute = definition.get("attribute")
-                          expected = definition["to"]
-                          state = self.hass.states.get(entity_id)
-                          if state is None or state_value(state, attribute) != expected:
-                              return
-                          context = {
-                              "type": "state",
-                              "trigger_index": index,
-                              "entity_id": entity_id,
-                              "friendly_name": state.attributes.get("friendly_name", entity_id),
-                              "from_state": None,
-                              "to_state": state_value(state, attribute),
-                              "attribute": attribute,
-                              "matched_current_state": True,
-                          }
+                          current_context = deepcopy(context)
+                          current_context["timestamp"] = dt_util.now().isoformat()
+                          accepted(current_context)
 
-                          def duration_done() -> None:
-                              current = self.hass.states.get(entity_id)
-                              if current is None or state_value(current, attribute) != expected:
-                                  return
-                              current_context = deepcopy(context)
-                              current_context["timestamp"] = dt_util.now().isoformat()
-                              accepted(current_context)
+                      runtime.schedule_duration(
+                          index,
+                          duration_seconds(definition.get("for")),
+                          duration_done,
+                      )
 
-                          runtime.schedule_duration(
-                              index,
-                              duration_seconds(definition.get("for")),
-                              duration_done,
-                          )
-
-                      async def async_rebuild(
-                          self,
-                          record: NotificationRecord,
-                          *,
-                          allow_current: bool = False,
-                          prove_current_durations: bool = False,
-                      ) -> None:
-                  '''),
+                  async def async_rebuild(
+                      self,
+                      record: NotificationRecord,
+                      *,
+                      allow_current: bool = False,
+                      prove_current_durations: bool = False,
+                  ) -> None:
+                  '''), "    "),
           )
           replace(
               manager,
@@ -339,34 +329,34 @@ jobs:
           sub(
               manager,
               r'^        else:\n            zone = self\.hass\.states\.get\(definition\["zone_entity_id"\]\)\n            zone_name = \(\n.*?^            actual = current\.state\n',
-              dedent('''\
-                          else:
-                              try:
-                                  inside = zone_condition(
-                                      self.hass,
-                                      definition["zone_entity_id"],
-                                      current,
-                                  )
-                              except ConditionError:
-                                  return None
-                              matched = inside if definition["event"] == "enter" else not inside
-                              actual = current.state
-                  '''),
+              indent(dedent('''\
+                  else:
+                      try:
+                          inside = zone_condition(
+                              self.hass,
+                              definition["zone_entity_id"],
+                              current,
+                          )
+                      except ConditionError:
+                          return None
+                      matched = inside if definition["event"] == "enter" else not inside
+                      actual = current.state
+                  '''), "        "),
           )
 
           lifecycle = ROOT / "lifecycle.py"
           sub(
               lifecycle,
               r'^    async def async_rebuild\(\n        self, record: NotificationRecord, \*, allow_current: bool = False\n    \) -> None:\n',
-              dedent('''\
-                      async def async_rebuild(
-                          self,
-                          record: NotificationRecord,
-                          *,
-                          allow_current: bool = False,
-                          prove_current_durations: bool = False,
-                      ) -> None:
-                  '''),
+              indent(dedent('''\
+                  async def async_rebuild(
+                      self,
+                      record: NotificationRecord,
+                      *,
+                      allow_current: bool = False,
+                      prove_current_durations: bool = False,
+                  ) -> None:
+                  '''), "    "),
           )
           replace(
               lifecycle,
@@ -374,7 +364,6 @@ jobs:
               "        await super().async_rebuild(\n            record,\n            allow_current=allow_current,\n            prove_current_durations=prove_current_durations,\n        )\n",
           )
 
-          # LLM lookups should fail structurally, not as uncaught tool exceptions.
           llm = ROOT / "llm.py"
           replace(llm, "from .manager import AmbiguousReference\n", "from .manager import AmbiguousReference, NotFound\n")
           replace(
@@ -383,249 +372,170 @@ jobs:
               '        except AmbiguousReference as err:\n            return {"error": "ambiguous", "candidates": err.candidates}\n        except NotFound as err:\n            return {"error": "not_found", "message": str(err)}\n',
           )
 
-          Path("tests/test_final_robustness.py").write_text(
-              dedent('''\
-                  """Regression coverage for final bug-sweep robustness fixes."""
+          Path("tests/test_final_robustness.py").write_text(dedent('''\
+              """Regression coverage for final bug-sweep robustness fixes."""
 
-                  from __future__ import annotations
+              from __future__ import annotations
 
-                  from datetime import UTC, datetime
-                  from types import SimpleNamespace
-                  from unittest.mock import AsyncMock, Mock
+              from datetime import UTC, datetime
+              from types import SimpleNamespace
+              from unittest.mock import AsyncMock, Mock
 
-                  import pytest
-                  from custom_components.conditional_notifications.const import DEFAULT_OPTIONS
-                  from custom_components.conditional_notifications.manager import NotificationManager
-                  from custom_components.conditional_notifications.models import NotificationRecord, duration_seconds
-                  from custom_components.conditional_notifications.sensor import ConditionalNotificationsSensor
-                  from custom_components.conditional_notifications.services import async_register_services
-                  from custom_components.conditional_notifications.storage import NotificationStore
-                  from custom_components.conditional_notifications.validation import DefinitionError, validate_definition
-                  from homeassistant.core import State, SupportsResponse
-
-
-                  def definition(**extra):
-                      data = {
-                          "name": "Watch",
-                          "triggers": [{"type": "state", "entity_id": "binary_sensor.motion", "to": "on"}],
-                          "title": "Watch",
-                          "message": "Matched",
-                      }
-                      data.update(extra)
-                      return data
+              import pytest
+              from custom_components.conditional_notifications.const import DEFAULT_OPTIONS
+              from custom_components.conditional_notifications.manager import NotificationManager
+              from custom_components.conditional_notifications.models import NotificationRecord, duration_seconds
+              from custom_components.conditional_notifications.sensor import ConditionalNotificationsSensor
+              from custom_components.conditional_notifications.services import async_register_services
+              from custom_components.conditional_notifications.storage import NotificationStore
+              from custom_components.conditional_notifications.validation import DefinitionError, validate_definition
+              from homeassistant.core import State, SupportsResponse
 
 
-                  class FakeRawStore:
-                      def __init__(self, data):
-                          self.data = data
-                          self.saved = None
-
-                      async def async_load(self):
-                          return self.data
-
-                      async def async_save(self, data):
-                          self.saved = data
-
-
-                  class FakeStates:
-                      def __init__(self, states=None):
-                          self.states = states or {}
-
-                      def get(self, entity_id):
-                          return self.states.get(entity_id)
+              def definition(**extra):
+                  data = {
+                      "name": "Watch",
+                      "triggers": [{"type": "state", "entity_id": "binary_sensor.motion", "to": "on"}],
+                      "title": "Watch",
+                      "message": "Matched",
+                  }
+                  data.update(extra)
+                  return data
 
 
-                  def test_duration_and_validation_reject_pathological_values():
-                      with pytest.raises(ValueError, match="boolean"):
-                          duration_seconds(True)
-                      with pytest.raises(ValueError, match="finite"):
-                          duration_seconds(float("inf"))
-                      with pytest.raises(DefinitionError, match="finite number"):
-                          validate_definition(
-                              definition(
-                                  triggers=[
-                                      {
-                                          "type": "numeric_state",
-                                          "entity_id": "sensor.temperature",
-                                          "above": float("nan"),
-                                      }
-                                  ]
-                              )
-                          )
-                      with pytest.raises(DefinitionError, match="true or false"):
-                          validate_definition(definition(match_current_state="false"))
-                      with pytest.raises(DefinitionError, match="unsupported fields"):
-                          validate_definition(
-                              definition(
-                                  active_window={
-                                      "start": "08:00",
-                                      "end": "18:00",
-                                      "weekday": ["monday"],
-                                  }
-                              )
-                          )
+              class FakeRawStore:
+                  def __init__(self, data):
+                      self.data = data
+                      self.saved = None
+
+                  async def async_load(self):
+                      return self.data
+
+                  async def async_save(self, data):
+                      self.saved = data
 
 
-                  def test_public_dict_uses_home_assistant_timezone(monkeypatch):
-                      record = NotificationRecord.create(
-                          definition(
-                              active_window={
-                                  "start": "08:00",
-                                  "end": "09:00",
-                                  "weekdays": ["monday"],
-                              }
-                          ),
-                          "u1",
-                      )
-                      monkeypatch.setattr(
-                          "custom_components.conditional_notifications.models.dt_util.now",
-                          lambda: datetime(2026, 8, 31, 8, 30, tzinfo=UTC),
-                      )
-                      assert record.public_dict()["currently_active"] is True
+              class FakeStates:
+                  def __init__(self, states=None):
+                      self.states = states or {}
+
+                  def get(self, entity_id):
+                      return self.states.get(entity_id)
 
 
-                  @pytest.mark.asyncio
-                  async def test_duplicate_ids_are_quarantined_separately():
-                      first = NotificationRecord.create(definition(), "u1")
-                      duplicate = first.as_dict()
-                      duplicate["name"] = "Duplicate"
-                      duplicate["definition"] = {**duplicate["definition"], "name": "Duplicate"}
-                      raw = FakeRawStore(
-                          {
-                              "records": [first.as_dict(), duplicate],
-                              "invalid_records": [{"id": "already_quarantined"}],
-                              "history": [],
-                          }
-                      )
-                      store = object.__new__(NotificationStore)
-                      store._store = raw
-                      store.records = {}
-                      store.invalid_records = []
-                      store.history = []
-                      await store.async_load()
-                      assert list(store.records) == [first.id]
-                      assert len(store.invalid_records) == 2
-                      await store.async_save()
-                      assert len(raw.saved["records"]) == 1
-                      assert len(raw.saved["invalid_records"]) == 2
+              def test_duration_and_validation_reject_pathological_values():
+                  with pytest.raises(ValueError, match="boolean"):
+                      duration_seconds(True)
+                  with pytest.raises(ValueError, match="finite"):
+                      duration_seconds(float("inf"))
+                  with pytest.raises(DefinitionError, match="finite number"):
+                      validate_definition(definition(triggers=[{"type": "numeric_state", "entity_id": "sensor.temperature", "above": float("nan")}]))
+                  with pytest.raises(DefinitionError, match="true or false"):
+                      validate_definition(definition(match_current_state="false"))
+                  with pytest.raises(DefinitionError, match="unsupported fields"):
+                      validate_definition(definition(active_window={"start": "08:00", "end": "18:00", "weekday": ["monday"]}))
 
 
-                  def test_summary_sensor_does_not_expose_record_identity():
-                      record = NotificationRecord.create(definition(name="Private title"), "u1")
-                      record.last_trigger_at = "2026-08-30T12:00:00+00:00"
-                      manager = SimpleNamespace(store=SimpleNamespace(records={record.id: record}))
-                      attributes = ConditionalNotificationsSensor(manager).extra_state_attributes
-                      assert attributes["last_triggered_at"] == record.last_trigger_at
-                      assert "last_triggered" not in attributes
-                      assert record.id not in repr(attributes)
-                      assert record.name not in repr(attributes)
+              def test_public_dict_uses_home_assistant_timezone(monkeypatch):
+                  record = NotificationRecord.create(
+                      definition(active_window={"start": "08:00", "end": "09:00", "weekdays": ["monday"]}),
+                      "u1",
+                  )
+                  monkeypatch.setattr(
+                      "custom_components.conditional_notifications.models.dt_util.now",
+                      lambda: datetime(2026, 8, 31, 8, 30, tzinfo=UTC),
+                  )
+                  assert record.public_dict()["currently_active"] is True
 
 
-                  def test_mutating_services_support_optional_response():
-                      registrations = {}
-
-                      class Services:
-                          def async_register(self, domain, service, handler, **kwargs):
-                              registrations[service] = kwargs["supports_response"]
-
-                      hass = SimpleNamespace(services=Services())
-                      async_register_services(hass, Mock())
-                      assert registrations["list"] is SupportsResponse.ONLY
-                      assert registrations["get"] is SupportsResponse.ONLY
-                      for service in (
-                          "create",
-                          "update",
-                          "delete",
-                          "pause",
-                          "resume",
-                          "enable",
-                          "disable",
-                          "rearm",
-                          "duplicate",
-                          "test",
-                          "trigger_now",
-                          "fire_named_trigger",
-                          "clear_history",
-                      ):
-                          assert registrations[service] is SupportsResponse.OPTIONAL
+              @pytest.mark.asyncio
+              async def test_duplicate_ids_are_quarantined_separately():
+                  first = NotificationRecord.create(definition(), "u1")
+                  duplicate = first.as_dict()
+                  duplicate["name"] = "Duplicate"
+                  duplicate["definition"] = {**duplicate["definition"], "name": "Duplicate"}
+                  raw = FakeRawStore({"records": [first.as_dict(), duplicate], "invalid_records": [{"id": "already_quarantined"}], "history": []})
+                  store = object.__new__(NotificationStore)
+                  store._store = raw
+                  store.records = {}
+                  store.invalid_records = []
+                  store.history = []
+                  await store.async_load()
+                  assert list(store.records) == [first.id]
+                  assert len(store.invalid_records) == 2
+                  await store.async_save()
+                  assert len(raw.saved["records"]) == 1
+                  assert len(raw.saved["invalid_records"]) == 2
 
 
-                  def test_seed_current_for_starts_fresh_duration_proof():
-                      accepted = []
-                      scheduled = {}
-                      runtime = SimpleNamespace(
-                          schedule_duration=lambda index, seconds, action: scheduled.update(
-                              index=index, seconds=seconds, action=action
-                          )
-                      )
-                      state = State("binary_sensor.motion", "on", {"friendly_name": "Motion"})
-                      manager = object.__new__(NotificationManager)
-                      manager.hass = SimpleNamespace(states=FakeStates({state.entity_id: state}))
-                      manager._seed_current_duration(
-                          runtime,
-                          {
-                              "type": "state",
-                              "entity_id": state.entity_id,
-                              "to": "on",
-                              "for": 30,
-                          },
-                          0,
-                          accepted.append,
-                      )
-                      assert scheduled["seconds"] == 30
-                      assert accepted == []
-                      scheduled["action"]()
-                      assert len(accepted) == 1
-                      assert accepted[0]["matched_current_state"] is True
+              def test_summary_sensor_does_not_expose_record_identity():
+                  record = NotificationRecord.create(definition(name="Private title"), "u1")
+                  record.last_trigger_at = "2026-08-30T12:00:00+00:00"
+                  manager = SimpleNamespace(store=SimpleNamespace(records={record.id: record}))
+                  attributes = ConditionalNotificationsSensor(manager).extra_state_attributes
+                  assert attributes["last_triggered_at"] == record.last_trigger_at
+                  assert "last_triggered" not in attributes
+                  assert record.id not in repr(attributes)
+                  assert record.name not in repr(attributes)
 
 
-                  @pytest.mark.asyncio
-                  async def test_initialize_requests_fresh_duration_proof():
-                      record = NotificationRecord.create(definition(), "u1")
-                      store = SimpleNamespace(
-                          records={record.id: record},
-                          history=[],
-                          invalid_records=[],
-                          async_load=AsyncMock(),
-                          async_save=AsyncMock(),
-                      )
-                      manager = object.__new__(NotificationManager)
-                      manager.hass = SimpleNamespace()
-                      manager.options = {**DEFAULT_OPTIONS}
-                      manager.store = store
-                      manager._shutting_down = False
-                      manager._validate_templates = Mock()
-                      manager._prune_history = Mock()
-                      manager.async_rebuild = AsyncMock()
-                      await manager.async_initialize()
-                      manager.async_rebuild.assert_awaited_once_with(
-                          record, prove_current_durations=True
-                      )
+              def test_mutating_services_support_optional_response():
+                  registrations = {}
+
+                  class Services:
+                      def async_register(self, domain, service, handler, **kwargs):
+                          registrations[service] = kwargs["supports_response"]
+
+                  hass = SimpleNamespace(services=Services())
+                  async_register_services(hass, Mock())
+                  assert registrations["list"] is SupportsResponse.ONLY
+                  assert registrations["get"] is SupportsResponse.ONLY
+                  for service in ("create", "update", "delete", "pause", "resume", "enable", "disable", "rearm", "duplicate", "test", "trigger_now", "fire_named_trigger", "clear_history"):
+                      assert registrations[service] is SupportsResponse.OPTIONAL
 
 
-                  def test_current_zone_resolution_uses_in_zones_membership():
-                      zone = State("zone.work", "0", {"friendly_name": "Work"})
-                      person = State("person.alex", "home", {"in_zones": ["zone.work"]})
-                      manager = object.__new__(NotificationManager)
-                      manager.hass = SimpleNamespace(
-                          states=FakeStates({zone.entity_id: zone, person.entity_id: person})
-                      )
-                      record = NotificationRecord.create(
-                          definition(
-                              resolve_when={
-                                  "type": "zone",
-                                  "entity_id": person.entity_id,
-                                  "zone_entity_id": zone.entity_id,
-                                  "event": "enter",
-                              }
-                          ),
-                          "u1",
-                      )
-                      record.active_occurrence = True
-                      context = manager._current_resolution_context(record)
-                      assert context is not None
-                      assert context["matched_current_resolution"] is True
-                  '''))
+              def test_seed_current_for_starts_fresh_duration_proof():
+                  accepted = []
+                  scheduled = {}
+                  runtime = SimpleNamespace(schedule_duration=lambda index, seconds, action: scheduled.update(index=index, seconds=seconds, action=action))
+                  state = State("binary_sensor.motion", "on", {"friendly_name": "Motion"})
+                  manager = object.__new__(NotificationManager)
+                  manager.hass = SimpleNamespace(states=FakeStates({state.entity_id: state}))
+                  manager._seed_current_duration(runtime, {"type": "state", "entity_id": state.entity_id, "to": "on", "for": 30}, 0, accepted.append)
+                  assert scheduled["seconds"] == 30
+                  assert accepted == []
+                  scheduled["action"]()
+                  assert len(accepted) == 1
+                  assert accepted[0]["matched_current_state"] is True
+
+
+              @pytest.mark.asyncio
+              async def test_initialize_requests_fresh_duration_proof():
+                  record = NotificationRecord.create(definition(), "u1")
+                  store = SimpleNamespace(records={record.id: record}, history=[], invalid_records=[], async_load=AsyncMock(), async_save=AsyncMock())
+                  manager = object.__new__(NotificationManager)
+                  manager.hass = SimpleNamespace()
+                  manager.options = {**DEFAULT_OPTIONS}
+                  manager.store = store
+                  manager._shutting_down = False
+                  manager._validate_templates = Mock()
+                  manager._prune_history = Mock()
+                  manager.async_rebuild = AsyncMock()
+                  await manager.async_initialize()
+                  manager.async_rebuild.assert_awaited_once_with(record, prove_current_durations=True)
+
+
+              def test_current_zone_resolution_uses_in_zones_membership():
+                  zone = State("zone.work", "0", {"friendly_name": "Work"})
+                  person = State("person.alex", "home", {"in_zones": ["zone.work"]})
+                  manager = object.__new__(NotificationManager)
+                  manager.hass = SimpleNamespace(states=FakeStates({zone.entity_id: zone, person.entity_id: person}))
+                  record = NotificationRecord.create(definition(resolve_when={"type": "zone", "entity_id": person.entity_id, "zone_entity_id": zone.entity_id, "event": "enter"}), "u1")
+                  record.active_occurrence = True
+                  context = manager._current_resolution_context(record)
+                  assert context is not None
+                  assert context["matched_current_resolution"] is True
+              '''))
           PY
           ruff format custom_components/conditional_notifications tests/test_final_robustness.py
           git checkout origin/main -- .github/workflows/ci.yml
