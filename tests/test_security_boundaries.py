@@ -50,11 +50,16 @@ def permissions(*, readable: set[str] | None = None, all_entities: bool = False)
     )
 
 
-def user(*, is_admin: bool = False, readable: set[str] | None = None):
+def user(
+    *,
+    is_admin: bool = False,
+    readable: set[str] | None = None,
+    all_entities: bool = False,
+):
     return SimpleNamespace(
         is_admin=is_admin,
         is_active=True,
-        permissions=permissions(readable=readable),
+        permissions=permissions(readable=readable, all_entities=all_entities),
     )
 
 
