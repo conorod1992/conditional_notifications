@@ -11,7 +11,6 @@ from homeassistant.util import dt as dt_util
 from .delivery import async_clear
 from .manager import NotificationManager
 from .models import NotificationRecord, duration_seconds, parse_datetime, utc_iso
-from .triggers import schedule_task
 from .validation import DefinitionError
 
 
@@ -89,6 +88,8 @@ class LifecycleNotificationManager(NotificationManager):
         return combined
 
     async def _async_trigger(self, record_id: str, revision: int, trigger: dict[str, Any]) -> None:
+        if self._is_shutting_down():
+            return
         record = self.store.records.get(record_id)
         if record is None or record.revision != revision:
             return
@@ -144,15 +145,17 @@ class LifecycleNotificationManager(NotificationManager):
 
     async def async_rearm(self, record: NotificationRecord) -> dict[str, Any]:
         """Reset runtime progress and begin a fresh observation cycle."""
-        now = dt_util.now()
-        expires = parse_datetime(record.definition.get("expires_at"))
-        if expires and expires <= now:
-            raise DefinitionError(
-                "expires_at",
-                "is in the past; edit the expiry before re-arming",
-            )
-
         async with self._lock(record.id):
+            self._require_current_record(record)
+            self._ensure_not_delivering(record.id)
+            now = dt_util.now()
+            expires = parse_datetime(record.definition.get("expires_at"))
+            if expires and expires <= now:
+                raise DefinitionError(
+                    "expires_at",
+                    "is in the past; edit the expiry before re-arming",
+                )
+
             record.revision += 1
             self._reset_runtime_state(record)
             record.enabled = True
@@ -196,8 +199,7 @@ class LifecycleNotificationManager(NotificationManager):
             record_id: str = record.id,
             revision: int = record.revision,
         ) -> None:
-            schedule_task(
-                self.hass,
+            self._schedule_task(
                 self._async_resolve_after_duration(record_id, revision),
             )
 
@@ -208,6 +210,8 @@ class LifecycleNotificationManager(NotificationManager):
 
     async def _async_resolve_after_duration(self, record_id: str, revision: int) -> None:
         """Resolve only if the condition still matches after the full duration."""
+        if self._is_shutting_down():
+            return
         record = self.store.records.get(record_id)
         if record is None or record.revision != revision or not record.active_occurrence:
             return
