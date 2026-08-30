@@ -24,7 +24,6 @@ class _VersionedStore(Store[dict[str, Any]]):
         if old_major_version == 0:
             return {
                 "records": old_data.get("records", old_data.get("watches", [])),
-                "invalid_records": old_data.get("invalid_records", []),
                 "history": old_data.get("history", []),
             }
         raise NotImplementedError
