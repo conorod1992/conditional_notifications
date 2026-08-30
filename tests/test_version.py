@@ -8,10 +8,7 @@ from pathlib import Path
 from custom_components.conditional_notifications.const import VERSION
 
 MANIFEST = (
-    Path(__file__).parents[1]
-    / "custom_components"
-    / "conditional_notifications"
-    / "manifest.json"
+    Path(__file__).parents[1] / "custom_components" / "conditional_notifications" / "manifest.json"
 )
 
 
