@@ -129,9 +129,7 @@ class LifecycleNotificationManager(NotificationManager):
         merged["name"] = changes.get("name", record.name)
         normalized = validate_definition(merged)
         await async_validate_observation_access(self.hass, normalized, record.owner_id)
-        return await super().async_update(
-            record, changes, expected_revision=expected_revision
-        )
+        return await super().async_update(record, changes, expected_revision=expected_revision)
 
     async def async_rebuild(
         self,
