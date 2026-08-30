@@ -6,18 +6,22 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant.components import websocket_api
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 
 from .lifecycle import LifecycleNotificationManager
-from .manager import AmbiguousReference, DefinitionError, NotFound
+from .manager import AmbiguousReference, DefinitionError, NotFound, RevisionConflict
 from .models import NotificationRecord
 
 WS_TYPE = "conditional_notifications"
 
 
 def _manager(hass: HomeAssistant) -> LifecycleNotificationManager:
-    return hass.data[WS_TYPE]["manager"]
+    manager = hass.data.get(WS_TYPE, {}).get("manager")
+    if manager is None:
+        raise HomeAssistantError("Conditional Notifications is reloading")
+    return manager
 
 
 def _send_error(connection: websocket_api.ActiveConnection, msg_id: int, err: Exception) -> None:
@@ -25,6 +29,8 @@ def _send_error(connection: websocket_api.ActiveConnection, msg_id: int, err: Ex
         connection.send_result(msg_id, {"error": "ambiguous", "candidates": err.candidates})
     elif isinstance(err, DefinitionError):
         connection.send_error(msg_id, "invalid_definition", f"{err.field}: {err.message}")
+    elif isinstance(err, RevisionConflict):
+        connection.send_error(msg_id, "revision_conflict", str(err))
     elif isinstance(err, NotFound):
         connection.send_error(msg_id, "not_found", str(err))
     else:
@@ -87,6 +93,7 @@ async def ws_create(
         vol.Required("type"): f"{WS_TYPE}/update",
         vol.Required("notification_id"): cv.string,
         vol.Required("changes"): dict,
+        vol.Optional("expected_revision"): vol.All(vol.Coerce(int), vol.Range(min=1)),
     }
 )
 @websocket_api.async_response
@@ -98,7 +105,9 @@ async def ws_update(
         connection.send_result(
             msg["id"],
             await manager.async_update(
-                _resolve(manager, connection, msg["notification_id"]), msg["changes"]
+                _resolve(manager, connection, msg["notification_id"]),
+                msg["changes"],
+                expected_revision=msg.get("expected_revision"),
             ),
         )
     except Exception as err:
@@ -200,18 +209,33 @@ async def ws_preferences(
 async def ws_subscribe(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    manager = _manager(hass)
+    subscribers = hass.data.setdefault(WS_TYPE, {}).setdefault("subscribers", set())
 
     def forward(payload: dict[str, Any]) -> None:
-        record = manager.store.records.get(payload["notification_id"])
+        manager = hass.data.get(WS_TYPE, {}).get("manager")
+        record = (
+            manager.store.records.get(payload["notification_id"])
+            if manager is not None and payload.get("notification_id")
+            else None
+        )
         if (
             connection.user.is_admin
-            or (record is not None and manager.can_access(record, connection.user.id, False))
+            or (
+                manager is not None
+                and record is not None
+                and manager.can_access(record, connection.user.id, False)
+            )
             or (record is None and payload.get("owner_id") in {None, connection.user.id})
         ):
             connection.send_event(msg["id"], payload)
 
-    connection.subscriptions[msg["id"]] = manager.subscribe(forward)
+    subscribers.add(forward)
+
+    @callback
+    def unsubscribe() -> None:
+        subscribers.discard(forward)
+
+    connection.subscriptions[msg["id"]] = unsubscribe
     connection.send_result(msg["id"])
 
 
