@@ -145,25 +145,33 @@ panel.load = function(force = false) {
   return promise;
 };
 
-panel.refresh = function() {
+panel.refresh = function(force = false) {
   if (!this.hass) return Promise.resolve();
-  if (this.refreshPromise) return this.refreshPromise;
+  if (!force && this.refreshPromise) return this.refreshPromise;
 
   const hass = this.hass;
   const connection = hass.connection;
+  const generation = (this.refreshGeneration || 0) + 1;
+  this.refreshGeneration = generation;
   let promise;
   promise = (async () => {
     try {
-      const [records, history] = await Promise.all([
+      const [records, history] = await withTimeout(Promise.all([
         hass.callWS({type:`${WS}/list`, query:this.search || undefined}),
         hass.callWS({type:`${WS}/history`}),
-      ]);
-      if (this.hass?.connection !== connection) return;
+      ]));
+      if (
+        this.refreshGeneration !== generation
+        || this.hass?.connection !== connection
+      ) return;
       this.records = records;
       this.history = history;
       if (!this.editor) this.render();
     } catch (error) {
-      if (this.hass?.connection === connection) {
+      if (
+        this.refreshGeneration === generation
+        && this.hass?.connection === connection
+      ) {
         this.showToast(`Couldn't refresh notifications: ${errorMessage(error)}`);
       }
     } finally {
@@ -181,7 +189,7 @@ panel.handleConnectionReady = function() {
   this.clearLiveSubscription(false);
 
   if (this.loaded) {
-    return this.refresh().then(() => this.ensureSubscription());
+    return this.refresh(true).then(() => this.ensureSubscription());
   }
 
   // Supersede an initial request that may have started on the dead connection.
@@ -203,6 +211,7 @@ panel.disconnectedCallback = function() {
   this.detachConnectionReadyListener();
   this.clearLiveSubscription(true);
   this.loadGeneration = (this.loadGeneration || 0) + 1;
+  this.refreshGeneration = (this.refreshGeneration || 0) + 1;
   this.loadPromise = undefined;
   this.refreshPromise = undefined;
   this.loaded = false;
