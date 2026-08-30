@@ -124,6 +124,8 @@ class LifecycleNotificationManager(NotificationManager):
         expected_revision: int | None = None,
     ) -> dict[str, Any]:
         """Reject observation-scope expansion before mutating durable state."""
+        self._require_current_record(record)
+        self._require_expected_revision(record, expected_revision)
         merged = deepcopy(record.definition)
         merged.update(changes)
         merged["name"] = changes.get("name", record.name)
