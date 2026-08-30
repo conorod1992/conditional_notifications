@@ -22,7 +22,7 @@ function contextWith(overrides = {}) {
   }, rest);
   if (hass !== undefined) {
     // Tests exercise lifecycle methods directly; bypass the real custom-element
-    // setter, which intentionally starts loading as soon as Home Assistant sets it.
+    // setter unless a test specifically covers the Home Assistant bootstrap path.
     Object.defineProperty(context, "hass", {
       value: hass,
       writable: true,
@@ -32,14 +32,69 @@ function contextWith(overrides = {}) {
   return context;
 }
 
+function connection(overrides = {}) {
+  return {
+    addEventListener() {},
+    removeEventListener() {},
+    subscribeMessage: async () => () => {},
+    ...overrides,
+  };
+}
+
+test("Home Assistant property batching starts the first load", async () => {
+  const wsCalls = [];
+  const currentConnection = connection();
+  const context = contextWith({
+    shadowRoot:{querySelectorAll:() => []},
+  });
+
+  context.setProperties({
+    panel:{url_path:"conditional-notifications"},
+    hass:{
+      connection:currentConnection,
+      callWS: async ({type}) => {
+        wsCalls.push(type);
+        return type.endsWith("/list") ? [{id:"one"}] : [{event:"created"}];
+      },
+    },
+    narrow:false,
+    route:{path:"/conditional-notifications"},
+  });
+
+  assert.ok(context.loadPromise, "initial Home Assistant property batch should start loading");
+  await context.loadPromise;
+  assert.equal(context.loaded, true);
+  assert.equal(context.loading, false);
+  assert.deepEqual(wsCalls, [
+    "conditional_notifications/list",
+    "conditional_notifications/history",
+  ]);
+});
+
+test("direct hass assignment uses the same bootstrap path", async () => {
+  const currentConnection = connection();
+  const context = contextWith({
+    shadowRoot:{querySelectorAll:() => []},
+  });
+
+  context.hass = {
+    connection:currentConnection,
+    callWS: async ({type}) => type.endsWith("/list") ? [{id:"one"}] : [],
+  };
+
+  assert.ok(context.loadPromise);
+  await context.loadPromise;
+  assert.equal(context.loaded, true);
+});
+
 test("initial data load does not wait for the live subscription", async () => {
   let resolveSubscription;
-  const connection = {
+  const currentConnection = connection({
     subscribeMessage: () => new Promise((resolve) => { resolveSubscription = resolve; }),
-  };
+  });
   const context = contextWith({
     hass: {
-      connection,
+      connection:currentConnection,
       callWS: async ({type}) => type.endsWith("/list") ? [{id:"one"}] : [{event:"created"}],
     },
   });
@@ -57,10 +112,10 @@ test("initial data load does not wait for the live subscription", async () => {
 });
 
 test("failed initial data load becomes retryable instead of staying on skeletons", async () => {
-  const connection = {subscribeMessage: async () => () => {}};
+  const currentConnection = connection();
   const context = contextWith({
     hass: {
-      connection,
+      connection:currentConnection,
       callWS: async () => { throw new Error("socket unavailable"); },
     },
   });
@@ -74,12 +129,12 @@ test("failed initial data load becomes retryable instead of staying on skeletons
 
 test("connection ready supersedes a stale initial load", async () => {
   const staleLoad = new Promise(() => {});
-  const connection = {subscribeMessage: async () => () => {}};
+  const currentConnection = connection();
   const context = contextWith({
     loadPromise: staleLoad,
     loadGeneration: 1,
     hass: {
-      connection,
+      connection:currentConnection,
       callWS: async ({type}) => type.endsWith("/list") ? [{id:"fresh"}] : [{event:"fresh"}],
     },
   });
@@ -94,19 +149,19 @@ test("connection ready supersedes a stale initial load", async () => {
 test("connection ready supersedes a stale refresh and restores live updates", async () => {
   const staleRefresh = new Promise(() => {});
   let subscriptions = 0;
-  const connection = {
+  const currentConnection = connection({
     subscribeMessage: async () => {
       subscriptions += 1;
       return () => {};
     },
-  };
+  });
   const context = contextWith({
     loaded: true,
     refreshPromise: staleRefresh,
     refreshGeneration: 3,
     records: [{id:"old"}],
     hass: {
-      connection,
+      connection:currentConnection,
       callWS: async ({type}) => type.endsWith("/list") ? [{id:"fresh"}] : [{event:"fresh"}],
     },
   });
@@ -121,13 +176,13 @@ test("connection ready supersedes a stale refresh and restores live updates", as
 test("refresh failures preserve the last good data and are handled", async () => {
   const previousRecords = [{id:"existing"}];
   const previousHistory = [{event:"existing"}];
-  const connection = {};
+  const currentConnection = connection();
   const context = contextWith({
     records: previousRecords,
     history: previousHistory,
     loaded: true,
     hass: {
-      connection,
+      connection:currentConnection,
       callWS: async () => { throw new Error("temporary disconnect"); },
     },
   });
