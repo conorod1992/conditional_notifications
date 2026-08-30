@@ -10,7 +10,8 @@ const { ConditionalNotificationsPanel } = await import(
 const panel = ConditionalNotificationsPanel.prototype;
 
 function contextWith(overrides = {}) {
-  return Object.assign(Object.create(panel), {
+  const {hass, ...rest} = overrides;
+  const context = Object.assign(Object.create(panel), {
     records: [],
     history: [],
     search: "",
@@ -18,7 +19,17 @@ function contextWith(overrides = {}) {
     loaded: false,
     render() {},
     showToast(message) { this.toastMessage = message; },
-  }, overrides);
+  }, rest);
+  if (hass !== undefined) {
+    // Tests exercise lifecycle methods directly; bypass the real custom-element
+    // setter, which intentionally starts loading as soon as Home Assistant sets it.
+    Object.defineProperty(context, "hass", {
+      value: hass,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return context;
 }
 
 test("initial data load does not wait for the live subscription", async () => {
