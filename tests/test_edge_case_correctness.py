@@ -346,7 +346,7 @@ async def test_invalid_persisted_definition_is_quarantined(manager) -> None:
     assert invalid.id not in manager.store.records
     assert manager.store.invalid_records[0]["id"] == invalid.id
     assert manager.store.saves == 1
-    manager.async_rebuild.assert_awaited_once_with(valid)
+    manager.async_rebuild.assert_awaited_once_with(valid, prove_current_durations=True)
 
 
 @pytest.mark.asyncio
