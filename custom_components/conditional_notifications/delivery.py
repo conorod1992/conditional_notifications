@@ -7,7 +7,7 @@ from copy import deepcopy
 from typing import Any
 
 from homeassistant.components import persistent_notification
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Context, HomeAssistant
 from homeassistant.helpers.template import Template
 
 from .const import DOMAIN
@@ -76,19 +76,26 @@ async def _async_service_call(
     data: dict[str, Any],
     *,
     target: dict[str, Any] | None = None,
+    context: Context | None = None,
 ) -> None:
     """Bound one provider call so a stuck target cannot wedge a delivery forever."""
+    kwargs: dict[str, Any] = {"blocking": True}
+    if target is not None:
+        kwargs["target"] = target
+    if context is not None:
+        kwargs["context"] = context
     async with asyncio.timeout(DELIVERY_TIMEOUT_SECONDS):
-        if target is None:
-            await hass.services.async_call(domain, service, data, blocking=True)
-        else:
-            await hass.services.async_call(
-                domain,
-                service,
-                data,
-                blocking=True,
-                target=target,
-            )
+        await hass.services.async_call(domain, service, data, **kwargs)
+
+
+async def _delivery_identity(
+    hass: HomeAssistant, record: NotificationRecord
+) -> tuple[Context | None, bool]:
+    owner_id = getattr(record, "owner_id", None)
+    if owner_id is None:
+        return None, True
+    user = await hass.auth.async_get_user(owner_id)
+    return Context(user_id=owner_id), bool(user and user.is_admin)
 
 
 def _error_text(err: Exception) -> str:
@@ -108,6 +115,7 @@ async def async_deliver(
 ) -> list[dict[str, Any]]:
     """Deliver independently; one channel failure cannot stop another."""
     delivery = merge_delivery(defaults, record.definition.get("delivery", {}))
+    context, owner_is_admin = await _delivery_identity(hass, record)
     entity_payload = {"title": title, "message": message}
     service_payload = _notify_payload(title, message, delivery)
     results: list[dict[str, Any]] = []
@@ -139,6 +147,7 @@ async def async_deliver(
                 "send_message",
                 entity_payload,
                 target={"entity_id": entity_id},
+                context=context,
             )
             results.append({"channel": entity_id, "success": True})
         except Exception as err:
@@ -154,11 +163,21 @@ async def async_deliver(
                 "announce",
                 {"message": message},
                 target={"entity_id": entity_id},
+                context=context,
             )
             results.append({"channel": entity_id, "success": True})
         except Exception as err:
             results.append({"channel": entity_id, "success": False, "error": _error_text(err)})
     for service in delivery.get("notify_services", []):
+        if context is not None and not owner_is_admin:
+            results.append(
+                {
+                    "channel": service,
+                    "success": False,
+                    "error": "Legacy notify services require an administrator-owned notification",
+                }
+            )
+            continue
         try:
             domain, service_name = service.split(".", 1) if "." in service else ("notify", service)
             if domain != "notify":
@@ -168,6 +187,7 @@ async def async_deliver(
                 "notify",
                 service_name,
                 service_payload,
+                context=context,
             )
             results.append({"channel": f"notify.{service_name}", "success": True})
         except Exception as err:

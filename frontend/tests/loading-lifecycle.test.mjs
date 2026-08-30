@@ -219,3 +219,26 @@ test("ready listener follows the active Home Assistant connection", () => {
     ["remove-second", "ready"],
   ]);
 });
+
+test("refresh keeps the canonical record list complete while searching", async () => {
+  const calls = [];
+  const currentConnection = connection();
+  const context = contextWith({
+    loaded:true,
+    search:"door",
+    hass:{
+      connection:currentConnection,
+      callWS: async (payload) => {
+        calls.push(payload);
+        return payload.type.endsWith("/list")
+          ? [{id:"door"},{id:"window"}]
+          : [];
+      },
+    },
+  });
+
+  await context.refresh();
+
+  assert.deepEqual(calls[0], {type:"conditional_notifications/list"});
+  assert.deepEqual(context.records, [{id:"door"},{id:"window"}]);
+});

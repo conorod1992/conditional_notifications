@@ -66,6 +66,29 @@ def _strict_bool(data: dict[str, Any], key: str, path: str, *, default: bool | N
         data[key] = default
 
 
+def _bounded_string(value: Any, path: str, label: str, *, maximum: int = 255) -> str:
+    if not isinstance(value, str):
+        _error(path, f"{label} must be a string")
+    normalized = value.strip()
+    if not normalized:
+        _error(path, "is required")
+    if len(normalized) > maximum:
+        _error(path, f"must be {maximum} characters or fewer")
+    return normalized
+
+
+def _local_time(value: Any, path: str) -> time:
+    if not isinstance(value, str):
+        _error(path, "must use HH:MM or HH:MM:SS")
+    try:
+        parsed = time.fromisoformat(value)
+    except ValueError:
+        _error(path, "must use HH:MM or HH:MM:SS")
+    if parsed.tzinfo is not None:
+        _error(path, "must be a local time without a timezone offset")
+    return parsed
+
+
 def _duration(data: dict[str, Any], key: str) -> None:
     try:
         seconds = duration_seconds(data.get(key))
@@ -127,12 +150,19 @@ def _validate_trigger(
         if result.get("event") not in {"enter", "leave"}:
             _error(f"{path}.event", "must be enter or leave")
     elif kind == "event":
-        if not result.get("event_type"):
-            _error(f"{path}.event_type", "is required")
+        event_type = _bounded_string(result.get("event_type"), f"{path}.event_type", "event type")
+        if event_type in {"*", "state_reported"}:
+            _error(
+                f"{path}.event_type",
+                "uses a Home Assistant reserved event type that cannot be watched here",
+            )
+        result["event_type"] = event_type
         if not isinstance(result.get("event_data", {}), dict):
             _error(f"{path}.event_data", "must be an object")
-    elif kind == "named" and not result.get("trigger_id"):
-        _error(f"{path}.trigger_id", "is required")
+    elif kind == "named":
+        result["trigger_id"] = _bounded_string(
+            result.get("trigger_id"), f"{path}.trigger_id", "trigger name"
+        )
     _duration(result, "for")
     return result
 
@@ -172,13 +202,10 @@ def _validate_condition(condition: dict[str, Any], path: str) -> dict[str, Any]:
             result.get("zone_entity_id"), f"{path}.zone_entity_id", domain="zone"
         )
     if kind == "time":
-        try:
-            if "after" in result:
-                time.fromisoformat(result["after"])
-            if "before" in result:
-                time.fromisoformat(result["before"])
-        except (TypeError, ValueError):
-            _error(path, "time values must use HH:MM or HH:MM:SS")
+        if "after" in result:
+            _local_time(result["after"], f"{path}.after")
+        if "before" in result:
+            _local_time(result["before"], f"{path}.before")
         if "after" not in result and "before" not in result:
             _error(path, "a time condition needs after or before")
         if "weekdays" in result:
@@ -367,9 +394,9 @@ def validate_definition(data: dict[str, Any], *, partial: bool = False) -> dict[
                 f"contains unsupported fields: {', '.join(sorted(extra))}",
             )
         try:
-            time.fromisoformat(window["start"])
-            time.fromisoformat(window["end"])
-        except (KeyError, TypeError, ValueError):
+            _local_time(window["start"], "active_window.start")
+            _local_time(window["end"], "active_window.end")
+        except KeyError:
             _error("active_window", "start and end must be valid local times")
         weekdays = window.get("weekdays", list(WEEKDAYS))
         if (
@@ -386,11 +413,23 @@ def validate_definition(data: dict[str, Any], *, partial: bool = False) -> dict[
         result["resolve_when"] = _validate_trigger(
             result["resolve_when"], "resolve_when", resolve=True
         )
+    text_limits = {
+        "title": 255,
+        "message": 4000,
+        "expiry_title": 255,
+        "expiry_message": 4000,
+        "resolved_title": 255,
+        "resolved_message": 4000,
+    }
+    for key, maximum in text_limits.items():
+        if key in result:
+            if not isinstance(result[key], str):
+                _error(key, "must be a string")
+            if len(result[key]) > maximum:
+                _error(key, "is too long")
     for key in ("title", "message"):
-        if not partial and not str(result.get(key, "")).strip():
+        if not partial and not result.get(key, "").strip():
             _error(key, "is required")
-        if key in result and len(str(result[key])) > (255 if key == "title" else 4000):
-            _error(key, "is too long")
     for key, default in (
         ("notify_on_expiry", False),
         ("clear_on_resolve", True),

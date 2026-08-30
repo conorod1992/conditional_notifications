@@ -154,7 +154,18 @@ class NotificationManager:
             try:
                 normalized = validate_definition(record.definition)
                 self._validate_templates(normalized)
-            except (DefinitionError, KeyError, TypeError, ValueError) as err:
+                normalized.pop("enabled", None)
+                record.definition = normalized
+                await self.async_rebuild(record, prove_current_durations=True)
+            except (
+                DefinitionError,
+                HomeAssistantError,
+                KeyError,
+                TypeError,
+                ValueError,
+            ) as err:
+                if runtime := self._runtimes.pop(record.id, None):
+                    runtime.cancel()
                 self.store.records.pop(record.id, None)
                 self.store.invalid_records.append(record.as_dict())
                 quarantined = True
@@ -164,9 +175,6 @@ class NotificationManager:
                     err,
                 )
                 continue
-            normalized.pop("enabled", None)
-            record.definition = normalized
-            await self.async_rebuild(record, prove_current_durations=True)
         if quarantined:
             await self.store.async_save()
 
@@ -265,8 +273,8 @@ class NotificationManager:
         ):
             if source := definition.get(field):
                 try:
-                    Template(str(source), self.hass).ensure_valid()
-                except TemplateError as err:
+                    Template(source, self.hass).ensure_valid()
+                except (TemplateError, TypeError) as err:
                     raise DefinitionError(field, str(err)) from err
 
     def _lock(self, record_id: str) -> asyncio.Lock:
@@ -400,7 +408,19 @@ class NotificationManager:
         self.store.records[record.id] = record
         self._add_history(record, "created", "Conditional notification created")
         await self.store.async_save()
-        await self.async_rebuild(record, allow_current=True)
+        try:
+            await self.async_rebuild(record, allow_current=True)
+        except Exception:
+            if runtime := self._runtimes.pop(record.id, None):
+                runtime.cancel()
+            self.store.records.pop(record.id, None)
+            self.store.history = [
+                item
+                for item in self.store.history
+                if not (item.notification_id == record.id and item.event == "created")
+            ]
+            await self.store.async_save()
+            raise
         self._event("created", record)
         return record.public_dict(dt_util.now())
 
@@ -909,7 +929,7 @@ class NotificationManager:
                     "delivery": results,
                     "occurrence": occurrence,
                 }
-            except (TemplateError, ValueError) as err:
+            except (TemplateError, TypeError, ValueError) as err:
                 results = [{"channel": "template", "success": False, "error": str(err)[:300]}]
                 delivered = False
                 event = "template_error"
@@ -1028,7 +1048,7 @@ class NotificationManager:
                             {"phase": "resolution", "delivery": results},
                         )
                         await self.store.async_save()
-            except (TemplateError, ValueError) as err:
+            except (TemplateError, TypeError, ValueError) as err:
                 async with self._lock(record_id):
                     current = self.store.records.get(record_id)
                     if not current or current.revision != revision:
@@ -1102,7 +1122,7 @@ class NotificationManager:
                         {"title": title, "message": message, "delivery": results},
                     )
                     await self.store.async_save()
-            except (TemplateError, ValueError) as err:
+            except (TemplateError, TypeError, ValueError) as err:
                 async with self._lock(record_id):
                     current = self.store.records.get(record_id)
                     if not current or current.revision != revision or current.status != "expired":
