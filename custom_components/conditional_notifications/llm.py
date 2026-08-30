@@ -155,9 +155,7 @@ class ActionTool(_Tool):
     ) -> JsonObjectType:
         args = tool_input.tool_args
         action = args["action"]
-        record = await self.record(
-            hass, args, llm_context, write=action != "duplicate"
-        )
+        record = await self.record(hass, args, llm_context, write=action != "duplicate")
         if isinstance(record, dict):
             return record
         if action == "pause":
