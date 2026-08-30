@@ -20,9 +20,7 @@ class MutationForbidden(HomeAssistantError):
     """A caller attempted to mutate a record outside its ownership scope."""
 
 
-def can_mutate_record(
-    record: NotificationRecord, user_id: str | None, is_admin: bool
-) -> bool:
+def can_mutate_record(record: NotificationRecord, user_id: str | None, is_admin: bool) -> bool:
     """Return whether a caller may mutate a record.
 
     System-owned records remain shared/readable, but authenticated non-admin users
