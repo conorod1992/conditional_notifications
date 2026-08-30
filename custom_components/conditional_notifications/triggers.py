@@ -135,9 +135,7 @@ def _named_event_authorized(runtime: RuntimeSubscriptions, event: Event) -> bool
         return False
     record = manager.store.records.get(runtime.notification_id)
     return bool(
-        record is not None
-        and record.revision == runtime.revision
-        and record.owner_id == user_id
+        record is not None and record.revision == runtime.revision and record.owner_id == user_id
     )
 
 
@@ -264,9 +262,7 @@ def attach_trigger(
             if not _named_event_authorized(runtime, event):
                 return
             public_data = {
-                key: value
-                for key, value in event.data.items()
-                if key != NAMED_TRIGGER_ADMIN_SCOPE
+                key: value for key, value in event.data.items() if key != NAMED_TRIGGER_ADMIN_SCOPE
             }
             dispatch({"trigger_id": definition["trigger_id"], "event_data": public_data})
 
