@@ -203,6 +203,8 @@ def attach_trigger(
                         value = float(state_value(new, definition.get("attribute")))
                     except (TypeError, ValueError):
                         value = None
+                    if value is not None and not math.isfinite(value):
+                        value = None
                     still_matching = numeric_matches(value, definition)
                 if not still_matching:
                     runtime.cancel_duration(index)
@@ -221,6 +223,8 @@ def attach_trigger(
                     try:
                         value = float(state_value(current, definition.get("attribute")))
                     except (TypeError, ValueError):
+                        value = None
+                    if value is not None and not math.isfinite(value):
                         value = None
                     still_matches = numeric_matches(value, definition)
                 if still_matches:

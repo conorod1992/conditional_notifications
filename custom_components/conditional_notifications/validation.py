@@ -423,6 +423,9 @@ def validate_definition(data: dict[str, Any], *, partial: bool = False) -> dict[
     if "notify_entities" in delivery and not isinstance(delivery["notify_entities"], list):
         _error("delivery.notify_entities", "must be a list")
     if "notify_entities" in delivery:
+        for entity_id in delivery["notify_entities"]:
+            if not isinstance(entity_id, str) or not entity_id.startswith("notify."):
+                _error("delivery.notify_entities", "may contain only notify entity IDs")
         delivery["notify_entities"] = [
             _entity_id(entity_id, "delivery.notify_entities", domain="notify")
             for entity_id in delivery["notify_entities"]
@@ -430,6 +433,12 @@ def validate_definition(data: dict[str, Any], *, partial: bool = False) -> dict[
     if "assist_satellites" in delivery and not isinstance(delivery["assist_satellites"], list):
         _error("delivery.assist_satellites", "must be a list")
     if "assist_satellites" in delivery:
+        for entity_id in delivery["assist_satellites"]:
+            if not isinstance(entity_id, str) or not entity_id.startswith("assist_satellite."):
+                _error(
+                    "delivery.assist_satellites",
+                    "may contain only Assist satellite entity IDs",
+                )
         delivery["assist_satellites"] = [
             _entity_id(
                 entity_id,
