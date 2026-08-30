@@ -196,12 +196,68 @@ panel.handleConnectionReady = function() {
   return this.load(true);
 };
 
+panel.applyHass = function(value) {
+  const previousConnection = this._hass?.connection;
+  this._hass = value;
+  this.bindHass();
+
+  if (!value) return;
+  if (previousConnection && previousConnection !== value.connection) {
+    void this.handleConnectionReady();
+  } else if (!this.loaded && !this.loadPromise) {
+    void this.load();
+  }
+};
+
+// Home Assistant's custom-panel host prefers setProperties() when it exists.
+// Handling the full property batch ourselves avoids depending on individual
+// custom-element setter timing during a direct/F5 panel bootstrap.
+panel.setProperties = function(properties) {
+  let rerender = false;
+
+  if (Object.prototype.hasOwnProperty.call(properties, "panel")) {
+    this._panel = properties.panel;
+  }
+  if (Object.prototype.hasOwnProperty.call(properties, "route")) {
+    this._route = properties.route;
+  }
+  if (Object.prototype.hasOwnProperty.call(properties, "narrow")) {
+    this._narrow = properties.narrow;
+    rerender = true;
+  }
+  if (Object.prototype.hasOwnProperty.call(properties, "hass")) {
+    this.applyHass(properties.hass);
+  }
+
+  if (rerender) this.render();
+};
+
+Object.defineProperty(panel, "hass", {
+  configurable: true,
+  get() { return this._hass; },
+  set(value) { this.applyHass(value); },
+});
+
 panel.bindHass = function() {
   originalBindHass.call(this);
   this.attachConnectionReadyListener();
 };
 
+panel.upgradeOwnProperty = function(name) {
+  if (!Object.prototype.hasOwnProperty.call(this, name)) return;
+  const value = this[name];
+  delete this[name];
+  this[name] = value;
+};
+
 panel.connectedCallback = function() {
+  // Recover properties assigned while the element was still unupgraded. This
+  // is harmless with current Home Assistant, and protects direct navigation
+  // against loader/order changes in the custom-panel host.
+  for (const property of ["panel", "hass", "narrow", "route"]) {
+    this.upgradeOwnProperty(property);
+  }
+
   originalConnectedCallback.call(this);
   this.attachConnectionReadyListener();
   if (this.hass && !this.loaded && !this.loadPromise) void this.load();
