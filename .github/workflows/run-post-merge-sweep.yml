@@ -1,0 +1,47 @@
+name: Run post-merge sweep patch
+
+on:
+  push:
+    branches:
+      - fix/post-merge-sweep-1.2.4
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/post-merge-sweep-1.2.4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install ruff==0.12.7
+      - name: Apply source transforms
+        shell: bash
+        run: |
+          python - <<'EXTRACT'
+          from pathlib import Path
+
+          source = Path('.github/workflows/apply-post-merge-sweep.yml').read_text(encoding='utf-8')
+          marker = "          python - <<'PY'\n"
+          start = source.index(marker) + len(marker)
+          end = source.index("\n          PY\n", start)
+          embedded = source[start:end]
+          program = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in embedded.splitlines()
+          ) + "\n"
+          compile(program, '<post-merge-sweep>', 'exec')
+          exec(compile(program, '<post-merge-sweep>', 'exec'), {})
+          EXTRACT
+          ruff format custom_components/conditional_notifications/conditions.py custom_components/conditional_notifications/triggers.py custom_components/conditional_notifications/manager.py custom_components/conditional_notifications/lifecycle.py custom_components/conditional_notifications/validation.py tests/test_post_merge_sweep.py
+          ruff check --fix custom_components/conditional_notifications/conditions.py custom_components/conditional_notifications/triggers.py custom_components/conditional_notifications/manager.py custom_components/conditional_notifications/lifecycle.py custom_components/conditional_notifications/validation.py tests/test_post_merge_sweep.py
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm .github/workflows/apply-post-merge-sweep.yml .github/workflows/run-post-merge-sweep.yml
+          git add custom_components/conditional_notifications tests/test_post_merge_sweep.py
+          git commit -m "fix: close post-merge robustness gaps"
+          git push origin HEAD:fix/post-merge-sweep-1.2.4
