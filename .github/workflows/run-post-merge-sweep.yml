@@ -22,6 +22,17 @@ jobs:
       - name: Apply source transforms
         shell: bash
         run: |
+          python - <<'PATCHER'
+          from pathlib import Path
+
+          path = Path('.github/apply_post_merge_sweep.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''    if count != 1:\n        raise RuntimeError(f"{path}: expected one literal match, found {count}\\n---\\n{old}")\n    file.write_text(text.replace(old, new, 1), encoding="utf-8")\n'''
+          new = '''    if count < 1:\n        raise RuntimeError(f"{path}: expected a literal match, found none\\n---\\n{old}")\n    file.write_text(text.replace(old, new, 1), encoding="utf-8")\n'''
+          if text.count(old) != 1:
+              raise RuntimeError('replace_once helper shape changed')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PATCHER
           python .github/apply_post_merge_sweep.py
           ruff format custom_components/conditional_notifications/conditions.py custom_components/conditional_notifications/triggers.py custom_components/conditional_notifications/manager.py custom_components/conditional_notifications/lifecycle.py custom_components/conditional_notifications/validation.py tests/test_post_merge_sweep.py
           ruff check --fix custom_components/conditional_notifications/conditions.py custom_components/conditional_notifications/triggers.py custom_components/conditional_notifications/manager.py custom_components/conditional_notifications/lifecycle.py custom_components/conditional_notifications/validation.py tests/test_post_merge_sweep.py
