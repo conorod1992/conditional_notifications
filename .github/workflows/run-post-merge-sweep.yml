@@ -38,7 +38,7 @@ jobs:
           ruff check --fix custom_components/conditional_notifications/conditions.py custom_components/conditional_notifications/triggers.py custom_components/conditional_notifications/manager.py custom_components/conditional_notifications/lifecycle.py custom_components/conditional_notifications/validation.py tests/test_post_merge_sweep.py
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git rm .github/workflows/apply-post-merge-sweep.yml .github/workflows/run-post-merge-sweep.yml .github/apply_post_merge_sweep.py
+          git rm -f .github/workflows/apply-post-merge-sweep.yml .github/workflows/run-post-merge-sweep.yml .github/apply_post_merge_sweep.py
           git add custom_components/conditional_notifications tests/test_post_merge_sweep.py
           git commit -m "fix: close post-merge robustness gaps"
           git push origin HEAD:fix/post-merge-sweep-1.2.4
