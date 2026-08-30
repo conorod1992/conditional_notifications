@@ -9,6 +9,9 @@ from datetime import time
 from typing import Any, Never
 from urllib.parse import urlparse
 
+import voluptuous as vol
+from homeassistant.helpers import config_validation as cv
+
 from .const import WEEKDAYS
 from .models import duration_seconds, parse_datetime
 
@@ -24,6 +27,23 @@ class DefinitionError(ValueError):
 
 def _error(field: str, message: str) -> Never:
     raise DefinitionError(field, message)
+
+
+def _entity_id(value: Any, path: str, *, domain: str | None = None) -> str:
+    try:
+        entity_id = cv.entity_id(value)
+    except vol.Invalid:
+        _error(path, "must be a valid entity ID")
+    if domain is not None and entity_id.split(".", 1)[0] != domain:
+        _error(path, f"must be a {domain} entity")
+    return entity_id
+
+
+def _validate_attribute(data: dict[str, Any], path: str) -> None:
+    if "attribute" not in data:
+        return
+    if not isinstance(data["attribute"], str) or not data["attribute"]:
+        _error(path, "must be a non-empty attribute name")
 
 
 def _finite_number(value: Any, path: str) -> float:
@@ -75,13 +95,22 @@ def _validate_trigger(
     }
     if extra := set(result) - allowed_by_type[kind]:
         _error(path, f"contains unsupported fields: {', '.join(sorted(extra))}")
-    if kind in {"state", "numeric_state", "zone"} and not result.get("entity_id"):
-        _error(f"{path}.entity_id", "is required")
+    if kind in {"state", "numeric_state", "zone"}:
+        result["entity_id"] = _entity_id(result.get("entity_id"), f"{path}.entity_id")
+    if kind in {"state", "numeric_state"}:
+        _validate_attribute(result, f"{path}.attribute")
     if kind == "state":
         if "from" not in result and "to" not in result:
             _error(path, "a state trigger needs from or to")
         if result.get("from") == result.get("to") and "from" in result and "to" in result:
             _error(path, "from and to must differ")
+        if "attribute" not in result:
+            for key in ("from", "to"):
+                if key in result and not isinstance(result[key], str):
+                    _error(
+                        f"{path}.{key}",
+                        "must be a string when no attribute is selected",
+                    )
     elif kind == "numeric_state":
         if "above" not in result and "below" not in result:
             _error(path, "a numeric trigger needs above or below")
@@ -92,8 +121,9 @@ def _validate_trigger(
         if "above" in result and "below" in result and result["above"] >= result["below"]:
             _error(path, "above must be less than below")
     elif kind == "zone":
-        if not result.get("zone_entity_id", "").startswith("zone."):
-            _error(f"{path}.zone_entity_id", "must be a zone entity")
+        result["zone_entity_id"] = _entity_id(
+            result.get("zone_entity_id"), f"{path}.zone_entity_id", domain="zone"
+        )
         if result.get("event") not in {"enter", "leave"}:
             _error(f"{path}.event", "must be enter or leave")
     elif kind == "event":
@@ -122,16 +152,25 @@ def _validate_condition(condition: dict[str, Any], path: str) -> dict[str, Any]:
     }
     if extra := set(result) - allowed_by_type[kind]:
         _error(path, f"contains unsupported fields: {', '.join(sorted(extra))}")
-    if kind in {"state", "numeric_state", "zone"} and not result.get("entity_id"):
-        _error(f"{path}.entity_id", "is required")
+    if kind in {"state", "numeric_state", "zone"}:
+        result["entity_id"] = _entity_id(result.get("entity_id"), f"{path}.entity_id")
+    if kind in {"state", "numeric_state"}:
+        _validate_attribute(result, f"{path}.attribute")
     if kind == "state":
         if "state" not in result:
             _error(f"{path}.state", "is required")
+        if "attribute" not in result and not isinstance(result["state"], str):
+            _error(
+                f"{path}.state",
+                "must be a string when no attribute is selected",
+            )
         _strict_bool(result, "negate", f"{path}.negate")
     if kind == "numeric_state":
         return _validate_trigger({**result, "type": "numeric_state"}, path)
-    if kind == "zone" and not str(result.get("zone_entity_id", "")).startswith("zone."):
-        _error(f"{path}.zone_entity_id", "must be a zone entity")
+    if kind == "zone":
+        result["zone_entity_id"] = _entity_id(
+            result.get("zone_entity_id"), f"{path}.zone_entity_id", domain="zone"
+        )
     if kind == "time":
         try:
             if "after" in result:
@@ -383,14 +422,31 @@ def validate_definition(data: dict[str, Any], *, partial: bool = False) -> dict[
             _error("delivery.notify_services", "may contain only notify service names")
     if "notify_entities" in delivery and not isinstance(delivery["notify_entities"], list):
         _error("delivery.notify_entities", "must be a list")
-    for entity_id in delivery.get("notify_entities", []):
-        if not isinstance(entity_id, str) or not entity_id.startswith("notify."):
-            _error("delivery.notify_entities", "may contain only notify entity IDs")
+    if "notify_entities" in delivery:
+        for entity_id in delivery["notify_entities"]:
+            if not isinstance(entity_id, str) or not entity_id.startswith("notify."):
+                _error("delivery.notify_entities", "may contain only notify entity IDs")
+        delivery["notify_entities"] = [
+            _entity_id(entity_id, "delivery.notify_entities", domain="notify")
+            for entity_id in delivery["notify_entities"]
+        ]
     if "assist_satellites" in delivery and not isinstance(delivery["assist_satellites"], list):
         _error("delivery.assist_satellites", "must be a list")
-    for entity_id in delivery.get("assist_satellites", []):
-        if not isinstance(entity_id, str) or not entity_id.startswith("assist_satellite."):
-            _error("delivery.assist_satellites", "may contain only Assist satellite entity IDs")
+    if "assist_satellites" in delivery:
+        for entity_id in delivery["assist_satellites"]:
+            if not isinstance(entity_id, str) or not entity_id.startswith("assist_satellite."):
+                _error(
+                    "delivery.assist_satellites",
+                    "may contain only Assist satellite entity IDs",
+                )
+        delivery["assist_satellites"] = [
+            _entity_id(
+                entity_id,
+                "delivery.assist_satellites",
+                domain="assist_satellite",
+            )
+            for entity_id in delivery["assist_satellites"]
+        ]
     if "companion" in delivery:
         delivery["companion"] = _validate_companion(delivery["companion"])
     return result

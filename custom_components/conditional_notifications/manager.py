@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from copy import deepcopy
 from datetime import timedelta
 from typing import Any
@@ -16,8 +17,13 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.template import Template, TemplateError
 from homeassistant.util import dt as dt_util
 
-from .conditions import async_evaluate_conditions, numeric_matches, state_value
-from .const import DEFAULT_OPTIONS, DOMAIN, EVENTS, SIGNAL_CHANGED, UNKNOWN_STATES
+from .conditions import (
+    async_evaluate_conditions,
+    is_unknown_state,
+    numeric_matches,
+    state_value,
+)
+from .const import DEFAULT_OPTIONS, DOMAIN, EVENTS, SIGNAL_CHANGED
 from .delivery import async_clear, async_deliver, async_render
 from .models import HistoryItem, NotificationRecord, duration_seconds, parse_datetime, utc_iso
 from .storage import NotificationStore
@@ -418,6 +424,7 @@ class NotificationManager:
             semantic_change = self._definition_is_semantic_change(record.definition, normalized)
             naturally_completed = self._completed_naturally(record)
             previous_status = record.status
+            abandoned_active_occurrence = semantic_change and record.active_occurrence
             record.revision += 1
             record.definition = normalized
             record.name = normalized["name"]
@@ -445,6 +452,8 @@ class NotificationManager:
                 {"runtime_reset": semantic_change},
             )
             await self.store.async_save()
+        if abandoned_active_occurrence:
+            async_clear(self.hass, record.id)
         await self.async_rebuild(record)
         self._event("updated", record)
         return record.public_dict(dt_util.now())
@@ -471,6 +480,7 @@ class NotificationManager:
             await self.store.async_save()
         for task in delivery_tasks:
             task.cancel()
+        async_clear(self.hass, record.id)
         self.hass.bus.async_fire(
             f"{DOMAIN}_deleted", {"notification_id": record.id, "name": record.name}
         )
@@ -513,39 +523,81 @@ class NotificationManager:
         index: int,
         accepted: Any,
     ) -> None:
-        """Begin a fresh proof period when a state `for` trigger is already true."""
-        if definition["type"] != "state" or "to" not in definition or not definition.get("for"):
+        """Begin a fresh proof period for a currently true duration trigger."""
+        seconds = duration_seconds(definition.get("for"))
+        if not seconds or definition["type"] not in {"state", "numeric_state"}:
             return
+
+        kind = definition["type"]
         entity_id = definition["entity_id"]
         attribute = definition.get("attribute")
-        expected = definition["to"]
         state = self.hass.states.get(entity_id)
-        if state is None or state_value(state, attribute) != expected:
+        if state is None:
             return
-        context = {
-            "type": "state",
-            "trigger_index": index,
-            "entity_id": entity_id,
-            "friendly_name": state.attributes.get("friendly_name", entity_id),
-            "from_state": None,
-            "to_state": state_value(state, attribute),
-            "attribute": attribute,
-            "matched_current_state": True,
-        }
+
+        if kind == "state":
+            if "to" not in definition:
+                return
+            value = state_value(state, attribute)
+            if value is None or is_unknown_state(value) or value != definition["to"]:
+                return
+            context = {
+                "type": "state",
+                "trigger_index": index,
+                "entity_id": entity_id,
+                "friendly_name": state.attributes.get("friendly_name", entity_id),
+                "from_state": None,
+                "to_state": value,
+                "attribute": attribute,
+                "matched_current_state": True,
+            }
+
+            def still_matches(current: Any) -> bool:
+                current_value = state_value(current, attribute)
+                return (
+                    current_value is not None
+                    and not is_unknown_state(current_value)
+                    and current_value == definition["to"]
+                )
+
+        else:
+            raw = state_value(state, attribute)
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                return
+            if not math.isfinite(value) or not numeric_matches(value, definition):
+                return
+            context = {
+                "type": "numeric_state",
+                "trigger_index": index,
+                "entity_id": entity_id,
+                "friendly_name": state.attributes.get("friendly_name", entity_id),
+                "previous_value": None,
+                "value": value,
+                "above": definition.get("above"),
+                "below": definition.get("below"),
+                "attribute": attribute,
+                "matched_current_state": True,
+            }
+
+            def still_matches(current: Any) -> bool:
+                raw_value = state_value(current, attribute)
+                try:
+                    current_value = float(raw_value)
+                except (TypeError, ValueError):
+                    return False
+                return math.isfinite(current_value) and numeric_matches(current_value, definition)
 
         def duration_done() -> None:
             current = self.hass.states.get(entity_id)
-            if current is None or state_value(current, attribute) != expected:
+            if not still_matches(current):
                 return
             current_context = deepcopy(context)
             current_context["timestamp"] = dt_util.now().isoformat()
             accepted(current_context)
 
-        runtime.schedule_duration(
-            index,
-            duration_seconds(definition.get("for")),
-            duration_done,
-        )
+        runtime.schedule_duration(index, seconds, duration_done)
 
     async def async_rebuild(
         self,
@@ -604,7 +656,11 @@ class NotificationManager:
                 self._schedule_task(self._async_trigger(record_id, revision, context))
 
             attach_trigger(runtime, definition, index, accepted)
-            if prove_current_durations:
+            if prove_current_durations or (
+                allow_current
+                and record.definition.get("match_current_state")
+                and definition["type"] == "state"
+            ):
                 self._seed_current_duration(runtime, definition, index, accepted)
         if resolve_definition := record.definition.get("resolve_when"):
 
@@ -643,12 +699,16 @@ class NotificationManager:
             if "to" not in definition:
                 return None
             actual = state_value(current, definition.get("attribute"))
-            matched = actual not in UNKNOWN_STATES and actual == definition["to"]
+            matched = (
+                actual is not None and not is_unknown_state(actual) and actual == definition["to"]
+            )
         elif kind == "numeric_state":
             raw = state_value(current, definition.get("attribute"))
             try:
                 actual = float(raw)
             except (TypeError, ValueError):
+                actual = None
+            if actual is not None and not math.isfinite(actual):
                 actual = None
             matched = numeric_matches(actual, definition)
         else:
@@ -681,7 +741,13 @@ class NotificationManager:
             if definition["type"] != "state" or "to" not in definition or definition.get("for"):
                 continue
             state = self.hass.states.get(definition["entity_id"])
-            if state and state.state == definition["to"]:
+            value = state_value(state, definition.get("attribute"))
+            if (
+                state
+                and value is not None
+                and not is_unknown_state(value)
+                and value == definition["to"]
+            ):
                 await self._async_trigger(
                     record.id,
                     record.revision,
@@ -693,7 +759,8 @@ class NotificationManager:
                             "friendly_name", definition["entity_id"]
                         ),
                         "from_state": None,
-                        "to_state": state.state,
+                        "to_state": value,
+                        "attribute": definition.get("attribute"),
                         "timestamp": dt_util.now().isoformat(),
                         "matched_current_state": True,
                     },

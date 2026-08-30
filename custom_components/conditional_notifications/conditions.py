@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from datetime import datetime, time
 from typing import Any
 
@@ -12,16 +13,22 @@ from homeassistant.exceptions import ConditionError
 from .const import UNKNOWN_STATES, WEEKDAYS
 
 
+def is_unknown_state(value: Any) -> bool:
+    """Return whether a scalar state value is HA unknown/unavailable."""
+    return isinstance(value, str) and value in UNKNOWN_STATES
+
+
 def _numeric_value(state: Any, attribute: str | None) -> float | None:
     if state is None:
         return None
     raw = state.attributes.get(attribute) if attribute else state.state
-    if raw in UNKNOWN_STATES or raw is None:
+    if raw is None or is_unknown_state(raw):
         return None
     try:
-        return float(raw)
+        number = float(raw)
     except (TypeError, ValueError):
         return None
+    return number if math.isfinite(number) else None
 
 
 def numeric_matches(value: float | None, definition: dict[str, Any]) -> bool:
@@ -50,7 +57,7 @@ def async_evaluate_conditions(
                 else (state.state if state else None)
             )
             expected = definition["state"]
-            known = actual is not None and actual not in UNKNOWN_STATES
+            known = actual is not None and not is_unknown_state(actual)
             passed = known and (
                 actual != expected if definition.get("negate") else actual == expected
             )
