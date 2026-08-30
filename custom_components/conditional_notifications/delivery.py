@@ -142,9 +142,7 @@ async def async_deliver(
             )
             results.append({"channel": entity_id, "success": True})
         except Exception as err:
-            results.append(
-                {"channel": entity_id, "success": False, "error": _error_text(err)}
-            )
+            results.append({"channel": entity_id, "success": False, "error": _error_text(err)})
     for entity_id in delivery.get("assist_satellites", []):
         try:
             # Assist satellites are an announcement channel rather than notify
@@ -159,9 +157,7 @@ async def async_deliver(
             )
             results.append({"channel": entity_id, "success": True})
         except Exception as err:
-            results.append(
-                {"channel": entity_id, "success": False, "error": _error_text(err)}
-            )
+            results.append({"channel": entity_id, "success": False, "error": _error_text(err)})
     for service in delivery.get("notify_services", []):
         try:
             domain, service_name = service.split(".", 1) if "." in service else ("notify", service)
@@ -175,9 +171,7 @@ async def async_deliver(
             )
             results.append({"channel": f"notify.{service_name}", "success": True})
         except Exception as err:
-            results.append(
-                {"channel": service, "success": False, "error": _error_text(err)}
-            )
+            results.append({"channel": service, "success": False, "error": _error_text(err)})
     if not results:
         results.append(
             {"channel": "none", "success": False, "error": "No delivery channel configured"}
