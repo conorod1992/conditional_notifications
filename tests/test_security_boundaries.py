@@ -25,9 +25,7 @@ from homeassistant.const import EVENT_COMPONENT_LOADED, EVENT_STATE_CHANGED
 def definition(**extra):
     data = {
         "name": "Watch",
-        "triggers": [
-            {"type": "state", "entity_id": "binary_sensor.motion", "to": "on"}
-        ],
+        "triggers": [{"type": "state", "entity_id": "binary_sensor.motion", "to": "on"}],
         "conditions": [],
         "title": "Watch",
         "message": "Matched",
@@ -94,9 +92,7 @@ async def test_user_definition_cannot_observe_unread_entity() -> None:
 @pytest.mark.asyncio
 async def test_zone_definition_requires_read_access_to_zone_too() -> None:
     hass = SimpleNamespace(
-        auth=SimpleNamespace(
-            async_get_user=AsyncMock(return_value=user(readable={"person.me"}))
-        )
+        auth=SimpleNamespace(async_get_user=AsyncMock(return_value=user(readable={"person.me"})))
     )
     restricted = definition(
         triggers=[
@@ -132,9 +128,7 @@ async def test_non_admin_can_watch_home_assistant_safe_event() -> None:
     hass = SimpleNamespace(
         auth=SimpleNamespace(async_get_user=AsyncMock(return_value=user(all_entities=True)))
     )
-    allowed = definition(
-        triggers=[{"type": "event", "event_type": EVENT_COMPONENT_LOADED}]
-    )
+    allowed = definition(triggers=[{"type": "event", "event_type": EVENT_COMPONENT_LOADED}])
 
     await async_validate_observation_access(hass, allowed, "user-1")
 
@@ -144,9 +138,7 @@ async def test_admin_and_system_definitions_keep_full_observation_scope() -> Non
     admin_hass = SimpleNamespace(
         auth=SimpleNamespace(async_get_user=AsyncMock(return_value=user(is_admin=True)))
     )
-    arbitrary = definition(
-        triggers=[{"type": "event", "event_type": "secret_custom_event"}]
-    )
+    arbitrary = definition(triggers=[{"type": "event", "event_type": "secret_custom_event"}])
 
     await async_validate_observation_access(admin_hass, arbitrary, "admin-1")
     await async_validate_observation_access(SimpleNamespace(), arbitrary, None)
@@ -217,9 +209,7 @@ async def test_authenticated_llm_cannot_mutate_shared_record() -> None:
         async_update=AsyncMock(),
     )
     tool = UpdateTool(manager)
-    hass = SimpleNamespace(
-        auth=SimpleNamespace(async_get_user=AsyncMock(return_value=user()))
-    )
+    hass = SimpleNamespace(auth=SimpleNamespace(async_get_user=AsyncMock(return_value=user())))
     llm_context = SimpleNamespace(context=SimpleNamespace(user_id="user-1"))
     tool_input = SimpleNamespace(
         tool_args={"reference": shared.id, "changes": {"message": "changed"}}
