@@ -66,6 +66,43 @@ test("native duration selector stores scalar seconds, not HA duration objects", 
   assert.equal(context.previewed, true);
 });
 
+test("invalid duration selector payloads preserve the previous value", () => {
+  let dirty = 0;
+  const context = {
+    editor:{definition:{cooldown:120}},
+    markDirty(){dirty += 1;},
+    updatePreview(){throw new Error("preview should not update");},
+  };
+
+  assert.equal(
+    panel.applyNativeSelectorValue.call(
+      context,
+      "cooldown",
+      {minutes:"invalid"},
+      "duration",
+    ),
+    false,
+  );
+  assert.equal(context.editor.definition.cooldown, 120);
+  assert.equal(dirty, 0);
+});
+
+test("cleared or zero native durations retain the existing optional-duration semantics", () => {
+  const context = {
+    editor:{definition:{cooldown:120, debounce:30}},
+    markDirty(){},
+    updatePreview(){},
+  };
+
+  assert.equal(panel.applyNativeSelectorValue.call(context, "cooldown", undefined, "duration"), true);
+  assert.equal("cooldown" in context.editor.definition, false);
+  assert.equal(
+    panel.applyNativeSelectorValue.call(context, "debounce", {seconds:0}, "duration"),
+    true,
+  );
+  assert.equal("debounce" in context.editor.definition, false);
+});
+
 test("selector-backed edits keep optimistic revision WebSocket compatibility", async () => {
   const calls = [];
   const definition = {
