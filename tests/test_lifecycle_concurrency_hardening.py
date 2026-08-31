@@ -135,6 +135,90 @@ async def test_waiting_mutator_cannot_modify_record_after_delete(manager) -> Non
 
 
 @pytest.mark.asyncio
+async def test_waiting_trigger_does_not_deliver_after_record_is_deleted(
+    manager, monkeypatch
+) -> None:
+    render = AsyncMock(return_value="rendered")
+    deliver = AsyncMock(return_value=[{"channel": "test", "success": True}])
+    monkeypatch.setattr("custom_components.conditional_notifications.manager.async_render", render)
+    monkeypatch.setattr(
+        "custom_components.conditional_notifications.manager.async_deliver", deliver
+    )
+    record = NotificationRecord.create(definition(), "u1")
+    manager.store.records[record.id] = record
+    lock = manager._lock(record.id)
+    await lock.acquire()
+
+    task = asyncio.create_task(
+        manager._async_trigger(record.id, record.revision, {"type": "state"})
+    )
+    await asyncio.sleep(0)
+    manager.store.records.pop(record.id)
+    lock.release()
+    await task
+
+    render.assert_not_awaited()
+    deliver.assert_not_awaited()
+    assert manager.store.history == []
+
+
+@pytest.mark.asyncio
+async def test_waiting_resolution_has_no_side_effect_after_record_is_deleted(
+    manager, monkeypatch
+) -> None:
+    clear = Mock()
+    monkeypatch.setattr("custom_components.conditional_notifications.manager.async_clear", clear)
+    record = NotificationRecord.create(definition(resolve=True), "u1")
+    record.active_occurrence = True
+    record.status = "active"
+    manager.store.records[record.id] = record
+    lock = manager._lock(record.id)
+    await lock.acquire()
+
+    task = asyncio.create_task(
+        manager._async_resolve(record.id, record.revision, {"type": "state"})
+    )
+    await asyncio.sleep(0)
+    manager.store.records.pop(record.id)
+    lock.release()
+    await task
+
+    clear.assert_not_called()
+    assert record.active_occurrence
+    assert record.status == "active"
+    assert manager.store.history == []
+
+
+@pytest.mark.asyncio
+async def test_waiting_expiry_does_not_deliver_after_record_is_deleted(
+    manager, monkeypatch
+) -> None:
+    render = AsyncMock(return_value="rendered")
+    deliver = AsyncMock(return_value=[{"channel": "test", "success": True}])
+    monkeypatch.setattr("custom_components.conditional_notifications.manager.async_render", render)
+    monkeypatch.setattr(
+        "custom_components.conditional_notifications.manager.async_deliver", deliver
+    )
+    expiry_definition = definition()
+    expiry_definition["notify_on_expiry"] = True
+    record = NotificationRecord.create(expiry_definition, "u1")
+    manager.store.records[record.id] = record
+    lock = manager._lock(record.id)
+    await lock.acquire()
+
+    task = asyncio.create_task(manager._async_expire(record.id, record.revision))
+    await asyncio.sleep(0)
+    manager.store.records.pop(record.id)
+    lock.release()
+    await task
+
+    render.assert_not_awaited()
+    deliver.assert_not_awaited()
+    assert record.status == "watching"
+    assert manager.store.history == []
+
+
+@pytest.mark.asyncio
 async def test_resolution_waits_for_initial_delivery_commit(manager, monkeypatch) -> None:
     started = asyncio.Event()
     finish = asyncio.Event()

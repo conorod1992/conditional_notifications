@@ -820,16 +820,19 @@ class NotificationManager:
     async def _async_trigger(self, record_id: str, revision: int, trigger: dict[str, Any]) -> None:
         if self._is_shutting_down():
             return
-        record = self.store.records.get(record_id)
-        if not record:
-            return
         delivery_key: tuple[str, int, str] | None = None
         accepted_at: str | None = None
         completed = False
         pending_resolution: dict[str, Any] | None = None
         try:
             async with self._lock(record_id):
-                if record.revision != revision or not record.enabled or record.paused:
+                record = self.store.records.get(record_id)
+                if (
+                    record is None
+                    or record.revision != revision
+                    or not record.enabled
+                    or record.paused
+                ):
                     return
                 now = dt_util.now()
                 if not record.is_temporally_active(now) or record.status in {
@@ -992,11 +995,9 @@ class NotificationManager:
     async def _async_resolve(self, record_id: str, revision: int, trigger: dict[str, Any]) -> None:
         if self._is_shutting_down():
             return
-        record = self.store.records.get(record_id)
-        if not record:
-            return
         async with self._lock(record_id):
-            if record.revision != revision or not record.active_occurrence:
+            record = self.store.records.get(record_id)
+            if record is None or record.revision != revision or not record.active_occurrence:
                 return
             inflight = next(
                 (
@@ -1073,12 +1074,10 @@ class NotificationManager:
     async def _async_expire(self, record_id: str, revision: int) -> None:
         if self._is_shutting_down():
             return
-        record = self.store.records.get(record_id)
-        if not record:
-            return
         should_notify = False
         async with self._lock(record_id):
-            if record.revision != revision or record.status == "expired":
+            record = self.store.records.get(record_id)
+            if record is None or record.revision != revision or record.status == "expired":
                 return
             should_notify = (
                 bool(record.definition.get("notify_on_expiry")) and not record.qualifying_match_seen
