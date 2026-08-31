@@ -68,6 +68,12 @@ def _validate_native_fragment(
     if discriminator == "trigger":
         has_trigger = "trigger" in result
         has_platform = "platform" in result
+        has_group = "triggers" in result and not has_trigger and not has_platform
+        if has_group:
+            group = result.get("triggers")
+            if not isinstance(group, list) or not group:
+                raise DefinitionError(f"{path}.triggers", "must be a non-empty trigger list")
+            return result
         if has_trigger == has_platform:
             raise DefinitionError(path, "must contain exactly one of trigger or platform")
         key = "trigger" if has_trigger else "platform"
