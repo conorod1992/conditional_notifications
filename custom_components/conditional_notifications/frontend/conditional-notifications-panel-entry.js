@@ -149,8 +149,13 @@ panel.styles = function() {
 
 panel.applyNativeSelectorValue = function(path, value, kind = "value") {
   if (!this.editor) return false;
-  let normalized = kind === "duration" ? durationValueToSeconds(value) : value;
-  if (kind === "duration" && normalized === 0) normalized = undefined;
+  let normalized = value;
+  if (kind === "duration") {
+    const cleared = value === undefined || value === null || value === "";
+    normalized = durationValueToSeconds(value);
+    if (!cleared && (normalized === undefined || normalized < 0)) return false;
+    if (normalized === 0) normalized = undefined;
+  }
   if (valuesEqual(getDefinitionValue(this.editor.definition, path), normalized)) return false;
   setDefinitionValue(this.editor.definition, path, normalized);
   this.markDirty();
@@ -271,7 +276,7 @@ panel.hydrateNativeSelectors = function() {
 
 panel.scheduleNativeSelectorUpgrade = function() {
   if (nativeSelectorsAvailable() || this._nativeSelectorWaitScheduled) return;
-  if (typeof customElements?.whenDefined !== "function") return;
+  if (typeof customElements === "undefined" || typeof customElements.whenDefined !== "function") return;
   this._nativeSelectorWaitScheduled = true;
   customElements.whenDefined("ha-selector").then(() => {
     this._nativeSelectorWaitScheduled = false;
