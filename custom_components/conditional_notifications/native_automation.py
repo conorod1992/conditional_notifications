@@ -44,7 +44,11 @@ def trigger_kind(definition: dict[str, Any] | None) -> str | None:
     if not definition:
         return None
     if is_native_trigger(definition):
-        if "triggers" in definition and "trigger" not in definition and "platform" not in definition:
+        if (
+            "triggers" in definition
+            and "trigger" not in definition
+            and "platform" not in definition
+        ):
             return "group"
         value = definition.get("trigger", definition.get("platform"))
         return value if isinstance(value, str) else None
@@ -145,9 +149,7 @@ async def async_prepare_native_condition(
     return validated[0]
 
 
-async def async_validate_native_definition(
-    hass: HomeAssistant, definition: dict[str, Any]
-) -> None:
+async def async_validate_native_definition(hass: HomeAssistant, definition: dict[str, Any]) -> None:
     """Preflight all native automation fragments before durable mutation."""
     for index, trigger in enumerate(definition.get("triggers", [])):
         if is_native_trigger(trigger):
@@ -161,7 +163,9 @@ async def async_validate_native_definition(
     if isinstance(resolve_when, dict) and is_native_trigger(resolve_when):
         prepared = await async_prepare_native_trigger(hass, resolve_when, "resolve_when")
         if len(prepared) != 1:
-            raise DefinitionError("resolve_when", "must describe exactly one Home Assistant trigger")
+            raise DefinitionError(
+                "resolve_when", "must describe exactly one Home Assistant trigger"
+            )
 
 
 def _plain_value(value: Any, depth: int = 0) -> Any:
@@ -246,9 +250,7 @@ async def async_attach_native_trigger(
     hass: HomeAssistant = runtime.hass
     validated = await async_prepare_native_trigger(hass, definition, f"triggers.{index}")
 
-    async def action(
-        run_variables: dict[str, Any], context: Context | None = None
-    ) -> None:
+    async def action(run_variables: dict[str, Any], context: Context | None = None) -> None:
         del context
         accepted(normalize_native_trigger_context(hass, run_variables, index))
 
@@ -281,9 +283,7 @@ async def async_attach_native_resolution_trigger(
     if len(validated) != 1:
         raise DefinitionError("resolve_when", "must describe exactly one Home Assistant trigger")
 
-    async def action(
-        run_variables: dict[str, Any], context: Context | None = None
-    ) -> None:
+    async def action(run_variables: dict[str, Any], context: Context | None = None) -> None:
         del context
         accepted(normalize_native_trigger_context(hass, run_variables, index))
 
@@ -299,7 +299,9 @@ async def async_attach_native_resolution_trigger(
         log_callback,
     )
     if remove is None:
-        raise DefinitionError("resolve_when", "Home Assistant did not attach the resolution trigger")
+        raise DefinitionError(
+            "resolve_when", "Home Assistant did not attach the resolution trigger"
+        )
     runtime.add(remove)
 
 

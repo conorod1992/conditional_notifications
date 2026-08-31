@@ -27,7 +27,9 @@ def _validate_native_value(value: Any, path: str, depth: int, counter: list[int]
         return
     if isinstance(value, str):
         if len(value) > _MAX_NATIVE_STRING:
-            raise DefinitionError(path, f"contains a string longer than {_MAX_NATIVE_STRING} characters")
+            raise DefinitionError(
+                path, f"contains a string longer than {_MAX_NATIVE_STRING} characters"
+            )
         return
     if isinstance(value, int):
         return

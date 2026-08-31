@@ -122,18 +122,14 @@ def test_native_condition_uses_final_trigger_variables_and_fails_closed() -> Non
     trigger_token = CURRENT_TRIGGER.set({"id": "door"})
     checker_token = CURRENT_CONDITION_CHECKERS.set({id(condition): Checker()})
     try:
-        passed, details = async_evaluate_conditions(
-            SimpleNamespace(), [condition], datetime.now()
-        )
+        passed, details = async_evaluate_conditions(SimpleNamespace(), [condition], datetime.now())
     finally:
         CURRENT_CONDITION_CHECKERS.reset(checker_token)
         CURRENT_TRIGGER.reset(trigger_token)
     assert passed is True
     assert details == [{"type": "trigger", "native": True, "passed": True}]
 
-    passed, details = async_evaluate_conditions(
-        SimpleNamespace(), [condition], datetime.now()
-    )
+    passed, details = async_evaluate_conditions(SimpleNamespace(), [condition], datetime.now())
     assert passed is False
     assert details[0]["error"] == "condition checker is unavailable"
 
@@ -151,9 +147,7 @@ async def test_non_admin_native_security_is_conservative() -> None:
     hass = SimpleNamespace(auth=SimpleNamespace(async_get_user=AsyncMock(return_value=user)))
 
     allowed = _definition()
-    allowed["triggers"] = [
-        {"trigger": "state", "entity_id": "binary_sensor.allowed", "to": "on"}
-    ]
+    allowed["triggers"] = [{"trigger": "state", "entity_id": "binary_sensor.allowed", "to": "on"}]
     allowed["conditions"] = []
     await async_validate_native_observation_access(hass, allowed, "user-1")
 

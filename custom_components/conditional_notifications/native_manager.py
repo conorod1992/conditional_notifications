@@ -136,9 +136,7 @@ class LifecycleNotificationManager(LegacyLifecycleNotificationManager):
             merged = deepcopy(record.definition)
             merged.update(changes)
             merged["name"] = changes.get("name", record.name)
-            normalized = await self._async_validate_definition_for_owner(
-                merged, record.owner_id
-            )
+            normalized = await self._async_validate_definition_for_owner(merged, record.owner_id)
             requested_enabled = bool(normalized.pop("enabled", record.enabled))
             semantic_change = self._definition_is_semantic_change(record.definition, normalized)
             naturally_completed = self._completed_naturally(record)
@@ -197,7 +195,9 @@ class LifecycleNotificationManager(LegacyLifecycleNotificationManager):
     ) -> None:
         """Attach legacy and HA-native subscriptions into one revision-owned runtime."""
         await async_validate_observation_access(self.hass, record.definition, record.owner_id)
-        await async_validate_native_observation_access(self.hass, record.definition, record.owner_id)
+        await async_validate_native_observation_access(
+            self.hass, record.definition, record.owner_id
+        )
         self._clear_correlation(record.id)
         self._native_pending_store().pop((record.id, record.revision), None)
 
@@ -312,9 +312,7 @@ class LifecycleNotificationManager(LegacyLifecycleNotificationManager):
             runtime.cancel()
             raise
 
-    async def _async_trigger(
-        self, record_id: str, revision: int, trigger: dict[str, Any]
-    ) -> None:
+    async def _async_trigger(self, record_id: str, revision: int, trigger: dict[str, Any]) -> None:
         """Apply correlation, then expose the final trigger to native conditions."""
         if self._is_shutting_down():
             return
@@ -350,9 +348,7 @@ class LifecycleNotificationManager(LegacyLifecycleNotificationManager):
         if pending is not None and current is not None and current.active_occurrence:
             await self._async_resolve(record_id, revision, pending)
 
-    async def _async_resolve(
-        self, record_id: str, revision: int, trigger: dict[str, Any]
-    ) -> None:
+    async def _async_resolve(self, record_id: str, revision: int, trigger: dict[str, Any]) -> None:
         """Retain transient native resolution events that occur during delivery."""
         record = self.store.records.get(record_id)
         resolve_when = record.definition.get("resolve_when") if record else None
@@ -391,9 +387,7 @@ class LifecycleNotificationManager(LegacyLifecycleNotificationManager):
                 return None
             actual = state_value(current, definition.get("attribute"))
             matched = (
-                actual is not None
-                and not is_unknown_state(actual)
-                and actual == definition["to"]
+                actual is not None and not is_unknown_state(actual) and actual == definition["to"]
             )
         elif kind == "numeric_state":
             raw = state_value(current, definition.get("attribute"))
