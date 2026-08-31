@@ -7,6 +7,7 @@ const panel = ConditionalNotificationsPanel.prototype;
 const originalHydrateEditor = panel.hydrateEditor;
 const originalBind = panel.bind;
 const originalStyles = panel.styles;
+let nativeSelectorLoadPromise;
 
 function getDefinitionValue(definition, path) {
   return path.split(".").reduce((value, part) => value?.[part], definition);
@@ -57,6 +58,58 @@ function nativeSelectorsAvailable() {
   return typeof document !== "undefined"
     && typeof customElements !== "undefined"
     && Boolean(customElements.get?.("ha-selector"));
+}
+
+async function waitForCustomElement(name, timeoutMs = 5000) {
+  if (typeof customElements === "undefined") throw new Error("Custom elements are unavailable");
+  if (customElements.get(name)) return;
+  if (typeof customElements.whenDefined !== "function") throw new Error("Custom element loading is unavailable");
+  let timer;
+  try {
+    await Promise.race([
+      customElements.whenDefined(name),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Timed out loading ${name}`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function ensureNativeSelectorsLoaded() {
+  if (nativeSelectorsAvailable()) return Promise.resolve(true);
+  if (nativeSelectorLoadPromise) return nativeSelectorLoadPromise;
+  nativeSelectorLoadPromise = (async () => {
+    if (typeof document === "undefined" || typeof customElements === "undefined") return false;
+    try {
+      await waitForCustomElement("partial-panel-resolver");
+      if (!customElements.get("ha-selector")) {
+        const resolver = document.createElement("partial-panel-resolver");
+        resolver.hass = {
+          panels: [{url_path:"conditional-notifications-selector-loader", component_name:"config"}],
+        };
+        if (typeof resolver._updateRoutes !== "function") return false;
+        resolver._updateRoutes();
+        const configRoute = resolver.routerOptions?.routes?.["conditional-notifications-selector-loader"];
+        if (typeof configRoute?.load !== "function") return false;
+        await configRoute.load();
+      }
+      if (!customElements.get("ha-selector")) {
+        await waitForCustomElement("ha-panel-config");
+        const configPanel = document.createElement("ha-panel-config");
+        const automationRoute = configPanel.routerOptions?.routes?.automation;
+        if (typeof automationRoute?.load !== "function") return false;
+        await automationRoute.load();
+      }
+      await waitForCustomElement("ha-selector");
+      return nativeSelectorsAvailable();
+    } catch (error) {
+      console.warn("Conditional Notifications: native HA selectors could not be loaded; using fallback fields", error);
+      return false;
+    }
+  })();
+  return nativeSelectorLoadPromise;
 }
 
 function selectorForPath(root, path) {
@@ -276,11 +329,10 @@ panel.hydrateNativeSelectors = function() {
 
 panel.scheduleNativeSelectorUpgrade = function() {
   if (nativeSelectorsAvailable() || this._nativeSelectorWaitScheduled) return;
-  if (typeof customElements === "undefined" || typeof customElements.whenDefined !== "function") return;
   this._nativeSelectorWaitScheduled = true;
-  customElements.whenDefined("ha-selector").then(() => {
+  ensureNativeSelectorsLoaded().then(available => {
     this._nativeSelectorWaitScheduled = false;
-    if (this.editor) this.render();
+    if (available && this.editor) this.render();
   });
 };
 
