@@ -221,7 +221,9 @@ def _validate_condition(condition: dict[str, Any], path: str) -> dict[str, Any]:
 
 
 def _companion_uri(value: Any, path: str) -> str:
-    uri = str(value or "").strip()
+    if not isinstance(value, str):
+        _error(path, "must be a string")
+    uri = value.strip()
     if not uri or len(uri) > 500:
         _error(path, "must be between 1 and 500 characters")
     if uri.startswith("/") and not uri.startswith("//"):
@@ -252,7 +254,10 @@ def _validate_companion(data: Any) -> dict[str, Any]:
                 _error(item_path, "must be an object")
             if extra := set(action) - {"title", "action", "uri"}:
                 _error(item_path, f"contains unsupported fields: {', '.join(sorted(extra))}")
-            title = str(action.get("title", "")).strip()
+            title = action.get("title")
+            if not isinstance(title, str):
+                _error(f"{item_path}.title", "must be a string")
+            title = title.strip()
             if not title or len(title) > 50:
                 _error(f"{item_path}.title", "must be between 1 and 50 characters")
             has_action = bool(action.get("action"))
@@ -263,7 +268,10 @@ def _validate_companion(data: Any) -> dict[str, Any]:
             if has_uri:
                 normalized_item["uri"] = _companion_uri(action["uri"], f"{item_path}.uri")
             else:
-                action_id = str(action["action"]).strip()
+                action_id = action["action"]
+                if not isinstance(action_id, str):
+                    _error(f"{item_path}.action", "must be a string")
+                action_id = action_id.strip()
                 if not re.fullmatch(r"[A-Za-z0-9_:-]{1,64}", action_id):
                     _error(
                         f"{item_path}.action",
@@ -315,12 +323,18 @@ def validate_definition(data: dict[str, Any], *, partial: bool = False) -> dict[
     if extra := set(result) - allowed:
         _error("definition", f"contains unsupported fields: {', '.join(sorted(extra))}")
     if not partial or "name" in result:
-        name = str(result.get("name", "")).strip()
+        name = result.get("name")
+        if not isinstance(name, str):
+            _error("name", "must be a string")
+        name = name.strip()
         if not name:
             _error("name", "is required")
         if len(name) > 100:
             _error("name", "must be 100 characters or fewer")
         result["name"] = name
+    for key in ("semantic_key", "description"):
+        if key in result and result[key] is not None and not isinstance(result[key], str):
+            _error(key, "must be a string or null")
     if not partial or "triggers" in result:
         triggers = result.get("triggers")
         if not isinstance(triggers, list) or not triggers:
@@ -373,46 +387,59 @@ def validate_definition(data: dict[str, Any], *, partial: bool = False) -> dict[
     for key in ("cooldown", "debounce"):
         _duration(result, key)
     for key in ("available_from", "expires_at"):
-        if result.get(key):
-            try:
-                parsed = parse_datetime(result[key])
-                assert parsed is not None
-                result[key] = parsed.isoformat()
-            except (TypeError, ValueError) as err:
-                _error(key, str(err))
+        if key not in result:
+            continue
+        if result[key] is None or result[key] == "":
+            result.pop(key)
+            continue
+        try:
+            parsed = parse_datetime(result[key])
+            assert parsed is not None
+            result[key] = parsed.isoformat()
+        except (TypeError, ValueError) as err:
+            _error(key, str(err))
     available = parse_datetime(result.get("available_from"))
     expires = parse_datetime(result.get("expires_at"))
     if available and expires and expires <= available:
         _error("expires_at", "must be after available_from")
-    if result.get("active_window"):
+    if "active_window" in result:
         window = result["active_window"]
-        if not isinstance(window, dict):
-            _error("active_window", "must be an object")
-        if extra := set(window) - {"start", "end", "weekdays"}:
-            _error(
-                "active_window",
-                f"contains unsupported fields: {', '.join(sorted(extra))}",
+        if window is None or window == {}:
+            result.pop("active_window")
+        else:
+            if not isinstance(window, dict):
+                _error("active_window", "must be an object")
+            if extra := set(window) - {"start", "end", "weekdays"}:
+                _error(
+                    "active_window",
+                    f"contains unsupported fields: {', '.join(sorted(extra))}",
+                )
+            try:
+                _local_time(window["start"], "active_window.start")
+                _local_time(window["end"], "active_window.end")
+            except KeyError:
+                _error("active_window", "start and end must be valid local times")
+            weekdays = window.get("weekdays", list(WEEKDAYS))
+            if (
+                not isinstance(weekdays, list)
+                or not weekdays
+                or any(day not in WEEKDAYS for day in weekdays)
+            ):
+                _error(
+                    "active_window.weekdays",
+                    "must be a non-empty list of valid weekdays",
+                )
+            window["weekdays"] = list(dict.fromkeys(weekdays))
+    if "resolve_when" in result:
+        resolve_when = result["resolve_when"]
+        if resolve_when is None or resolve_when == {}:
+            result.pop("resolve_when")
+        elif not isinstance(resolve_when, dict):
+            _error("resolve_when", "must be an object")
+        else:
+            result["resolve_when"] = _validate_trigger(
+                resolve_when, "resolve_when", resolve=True
             )
-        try:
-            _local_time(window["start"], "active_window.start")
-            _local_time(window["end"], "active_window.end")
-        except KeyError:
-            _error("active_window", "start and end must be valid local times")
-        weekdays = window.get("weekdays", list(WEEKDAYS))
-        if (
-            not isinstance(weekdays, list)
-            or not weekdays
-            or any(day not in WEEKDAYS for day in weekdays)
-        ):
-            _error(
-                "active_window.weekdays",
-                "must be a non-empty list of valid weekdays",
-            )
-        window["weekdays"] = list(dict.fromkeys(weekdays))
-    if result.get("resolve_when"):
-        result["resolve_when"] = _validate_trigger(
-            result["resolve_when"], "resolve_when", resolve=True
-        )
     text_limits = {
         "title": 255,
         "message": 4000,
