@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Mapping
 from copy import deepcopy
 from datetime import datetime, timedelta
@@ -11,14 +12,13 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant.core import Context, Event, HomeAssistant, State
-from homeassistant.exceptions import ConditionError, HomeAssistantError, TemplateError
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import condition as condition_helper
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import trigger as trigger_helper
 from homeassistant.helpers.condition import ConditionChecker
 from homeassistant.util import dt as dt_util
 
-from .conditions import async_evaluate_conditions
 from .const import DOMAIN
 from .validation import DefinitionError
 
@@ -49,9 +49,9 @@ def trigger_kind(definition: dict[str, Any] | None) -> str | None:
 def legacy_trigger_view(definition: dict[str, Any]) -> dict[str, Any] | None:
     """Project simple HA triggers into the legacy shape used by current-state logic.
 
-    This is intentionally conservative. Native triggers remain fully native for
-    subscription purposes; the projection only enables lifecycle features whose
-    meaning is well-defined for simple state/numeric/zone/event triggers.
+    Native triggers remain fully native for subscription purposes; this conservative
+    projection only enables lifecycle features whose meaning is well-defined for a
+    single state, numeric-state, zone, or event trigger.
     """
     if not is_native_trigger(definition):
         return definition
@@ -74,18 +74,20 @@ def legacy_trigger_view(definition: dict[str, Any]) -> dict[str, Any] | None:
 
     if kind == "state":
         for key in ("from", "to"):
-            value = definition.get(key)
-            if key in definition:
-                if not isinstance(value, (str, int, float, bool)) and value is not None:
-                    return None
-                result[key] = value
+            if key not in definition:
+                continue
+            value = definition[key]
+            if not isinstance(value, (str, int, float, bool)) and value is not None:
+                return None
+            result[key] = value
     elif kind == "numeric_state":
         for key in ("above", "below"):
-            value = definition.get(key)
-            if key in definition:
-                if not isinstance(value, (int, float)) or isinstance(value, bool):
-                    return None
-                result[key] = value
+            if key not in definition:
+                continue
+            value = definition[key]
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                return None
+            result[key] = value
     elif kind == "zone":
         zone = definition.get("zone")
         if not isinstance(zone, str):
@@ -117,7 +119,7 @@ async def async_prepare_native_trigger(
     except (vol.Invalid, HomeAssistantError, KeyError, TypeError, ValueError) as err:
         raise _definition_error(path, err) from err
     if not validated:
-        raise DefinitionError(path, "must contain at least one enabled or disabled trigger")
+        raise DefinitionError(path, "must contain at least one trigger")
     return validated
 
 
@@ -160,8 +162,10 @@ def _plain_value(value: Any, depth: int = 0) -> Any:
     """Convert HA runtime trigger payloads to durable JSON-like values."""
     if depth > 12:
         return "<maximum depth reached>"
-    if value is None or isinstance(value, (str, int, float, bool)):
+    if value is None or isinstance(value, (str, int, bool)):
         return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else str(value)
     if isinstance(value, State):
         return _plain_value(value.as_dict(), depth + 1)
     if isinstance(value, Event):
@@ -185,10 +189,7 @@ def _plain_value(value: Any, depth: int = 0) -> Any:
     if isinstance(value, Enum):
         return _plain_value(value.value, depth + 1)
     if isinstance(value, Mapping):
-        return {
-            str(key): _plain_value(item, depth + 1)
-            for key, item in value.items()
-        }
+        return {str(key): _plain_value(item, depth + 1) for key, item in value.items()}
     if isinstance(value, (list, tuple, set, frozenset)):
         return [_plain_value(item, depth + 1) for item in value]
     return str(value)
@@ -221,9 +222,7 @@ def normalize_native_trigger_context(
             trigger["friendly_name"] = str(platform).replace("_", " ").title()
 
     extra_variables = {
-        key: _plain_value(value)
-        for key, value in run_variables.items()
-        if key != "trigger"
+        key: _plain_value(value) for key, value in run_variables.items() if key != "trigger"
     }
     if extra_variables:
         trigger["variables"] = extra_variables
@@ -258,8 +257,9 @@ async def async_attach_native_trigger(
         name,
         log_callback,
     )
-    if remove is not None:
-        runtime.add(remove)
+    if remove is None:
+        raise DefinitionError(f"triggers.{index}", "Home Assistant did not attach the trigger")
+    runtime.add(remove)
 
 
 async def async_attach_native_resolution_trigger(
@@ -292,8 +292,9 @@ async def async_attach_native_resolution_trigger(
         f"{name} resolution",
         log_callback,
     )
-    if remove is not None:
-        runtime.add(remove)
+    if remove is None:
+        raise DefinitionError("resolve_when", "Home Assistant did not attach the resolution trigger")
+    runtime.add(remove)
 
 
 async def async_build_native_condition_checkers(
@@ -301,7 +302,7 @@ async def async_build_native_condition_checkers(
     runtime: Any,
     conditions: list[dict[str, Any]],
 ) -> dict[int, ConditionChecker]:
-    """Build and lifecycle-own native condition checkers by definition index."""
+    """Build and lifecycle-own native condition checkers by object identity."""
     checkers: dict[int, ConditionChecker] = {}
     try:
         for index, definition in enumerate(conditions):
@@ -311,64 +312,10 @@ async def async_build_native_condition_checkers(
                 hass, definition, f"conditions.{index}"
             )
             checker = await condition_helper.async_from_config(hass, validated)
-            checkers[index] = checker
+            checkers[id(definition)] = checker
             runtime.add(checker.async_unload)
     except Exception:
         for checker in checkers.values():
             checker.async_unload()
         raise
     return checkers
-
-
-def evaluate_mixed_conditions(
-    hass: HomeAssistant,
-    conditions: list[dict[str, Any]],
-    now: datetime,
-    trigger: dict[str, Any],
-    native_checkers: dict[int, ConditionChecker] | None,
-) -> tuple[bool, list[dict[str, Any]]]:
-    """Evaluate legacy and HA-native conditions with AND semantics."""
-    results: list[dict[str, Any]] = []
-    native_checkers = native_checkers or {}
-    for index, definition in enumerate(conditions):
-        if not is_native_condition(definition):
-            passed, legacy_results = async_evaluate_conditions(hass, [definition], now)
-            results.extend(legacy_results)
-            if not passed:
-                return False, results
-            continue
-
-        checker = native_checkers.get(index)
-        kind = definition.get("condition", "home_assistant")
-        if checker is None:
-            results.append(
-                {
-                    "type": kind,
-                    "native": True,
-                    "passed": False,
-                    "error": "condition checker is unavailable",
-                }
-            )
-            return False, results
-
-        try:
-            result = checker.async_check(variables={"trigger": trigger})
-            passed = result is not False
-            detail: dict[str, Any] = {
-                "type": kind,
-                "native": True,
-                "passed": passed,
-            }
-        except (ConditionError, HomeAssistantError, TemplateError, TypeError, ValueError) as err:
-            passed = False
-            detail = {
-                "type": kind,
-                "native": True,
-                "passed": False,
-                "error": str(err)[:300],
-            }
-        results.append(detail)
-        if not passed:
-            return False, results
-
-    return True, results
