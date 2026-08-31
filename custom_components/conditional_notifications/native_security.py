@@ -72,6 +72,23 @@ def _check_native_trigger(
     unrestricted: bool,
 ) -> None:
     kind = trigger_kind(definition)
+    if kind == "group":
+        children = definition.get("triggers")
+        if not isinstance(children, list) or not children:
+            raise DefinitionError(f"{path}.triggers", "must be a non-empty trigger list")
+        for index, child in enumerate(children):
+            if not isinstance(child, dict) or not is_native_trigger(child):
+                raise DefinitionError(
+                    f"{path}.triggers.{index}", "must be a Home Assistant trigger"
+                )
+            _check_native_trigger(
+                child,
+                f"{path}.triggers.{index}",
+                permissions,
+                unrestricted,
+            )
+        return
+
     if kind not in _SAFE_TRIGGER_KINDS:
         raise DefinitionError(
             path,
@@ -80,20 +97,30 @@ def _check_native_trigger(
 
     if kind in {"state", "numeric_state", "zone", "calendar"}:
         _require_entity_read(
-            permissions, unrestricted, definition.get("entity_id"), f"{path}.entity_id"
+            permissions,
+            unrestricted,
+            definition.get("entity_id"),
+            f"{path}.entity_id",
         )
     if kind == "zone":
-        _require_entity_read(permissions, unrestricted, definition.get("zone"), f"{path}.zone")
+        _require_entity_read(
+            permissions, unrestricted, definition.get("zone"), f"{path}.zone"
+        )
     if kind == "numeric_state":
         for key in ("above", "below"):
             value = definition.get(key)
             if isinstance(value, str) and _looks_like_entity_id(value):
-                _require_entity_read(permissions, unrestricted, value, f"{path}.{key}")
+                _require_entity_read(
+                    permissions, unrestricted, value, f"{path}.{key}"
+                )
     if kind == "time":
         at = definition.get("at")
         if isinstance(at, dict):
             _require_entity_read(
-                permissions, unrestricted, at.get("entity_id"), f"{path}.at.entity_id"
+                permissions,
+                unrestricted,
+                at.get("entity_id"),
+                f"{path}.at.entity_id",
             )
         elif isinstance(at, str) and _looks_like_entity_id(at):
             _require_entity_read(permissions, unrestricted, at, f"{path}.at")
@@ -101,9 +128,15 @@ def _check_native_trigger(
         event_type = definition.get("event_type")
         event_types = [event_type] if isinstance(event_type, str) else event_type
         if not isinstance(event_types, list) or not event_types:
-            raise DefinitionError(f"{path}.event_type", "must be a permitted Home Assistant event")
+            raise DefinitionError(
+                f"{path}.event_type", "must be a permitted Home Assistant event"
+            )
         for item in event_types:
-            if not isinstance(item, str) or item == EVENT_STATE_CHANGED or item not in SUBSCRIBE_ALLOWLIST:
+            if (
+                not isinstance(item, str)
+                or item == EVENT_STATE_CHANGED
+                or item not in SUBSCRIBE_ALLOWLIST
+            ):
                 raise DefinitionError(
                     f"{path}.event_type",
                     "requires administrator access because Home Assistant does not expose "
@@ -130,7 +163,9 @@ def _check_native_condition(
             raise DefinitionError(f"{path}.conditions", "must be a list")
         for index, child in enumerate(children):
             if not isinstance(child, dict) or not is_native_condition(child):
-                raise DefinitionError(f"{path}.conditions.{index}", "must be a Home Assistant condition")
+                raise DefinitionError(
+                    f"{path}.conditions.{index}", "must be a Home Assistant condition"
+                )
             _check_native_condition(
                 child,
                 f"{path}.conditions.{index}",
@@ -141,15 +176,22 @@ def _check_native_condition(
 
     if kind in {"state", "numeric_state", "zone"}:
         _require_entity_read(
-            permissions, unrestricted, definition.get("entity_id"), f"{path}.entity_id"
+            permissions,
+            unrestricted,
+            definition.get("entity_id"),
+            f"{path}.entity_id",
         )
     if kind == "zone":
-        _require_entity_read(permissions, unrestricted, definition.get("zone"), f"{path}.zone")
+        _require_entity_read(
+            permissions, unrestricted, definition.get("zone"), f"{path}.zone"
+        )
     if kind == "numeric_state":
         for key in ("above", "below"):
             value = definition.get(key)
             if isinstance(value, str) and _looks_like_entity_id(value):
-                _require_entity_read(permissions, unrestricted, value, f"{path}.{key}")
+                _require_entity_read(
+                    permissions, unrestricted, value, f"{path}.{key}"
+                )
 
 
 async def async_validate_native_observation_access(
@@ -162,7 +204,9 @@ async def async_validate_native_observation_access(
         return
     user = await hass.auth.async_get_user(owner_id)
     if user is None or not getattr(user, "is_active", True):
-        raise DefinitionError("owner_id", "does not refer to an active Home Assistant user")
+        raise DefinitionError(
+            "owner_id", "does not refer to an active Home Assistant user"
+        )
     if user.is_admin:
         return
 
@@ -171,11 +215,15 @@ async def async_validate_native_observation_access(
 
     for index, item in enumerate(definition.get("triggers", [])):
         if isinstance(item, dict) and is_native_trigger(item):
-            _check_native_trigger(item, f"triggers.{index}", permissions, unrestricted)
+            _check_native_trigger(
+                item, f"triggers.{index}", permissions, unrestricted
+            )
 
     for index, item in enumerate(definition.get("conditions", [])):
         if isinstance(item, dict) and is_native_condition(item):
-            _check_native_condition(item, f"conditions.{index}", permissions, unrestricted)
+            _check_native_condition(
+                item, f"conditions.{index}", permissions, unrestricted
+            )
 
     resolve_when = definition.get("resolve_when")
     if isinstance(resolve_when, dict) and is_native_trigger(resolve_when):
