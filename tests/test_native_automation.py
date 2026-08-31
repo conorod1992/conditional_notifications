@@ -146,7 +146,9 @@ async def test_non_admin_native_security_is_conservative() -> None:
     hass = SimpleNamespace(auth=SimpleNamespace(async_get_user=AsyncMock(return_value=user)))
 
     allowed = _definition()
-    allowed["triggers"] = [{"trigger": "state", "entity_id": "binary_sensor.allowed", "to": "on"}]
+    allowed["triggers"] = [
+        {"trigger": "state", "entity_id": "binary_sensor.allowed", "to": "on"}
+    ]
     allowed["conditions"] = []
     await async_validate_native_observation_access(hass, allowed, "user-1")
 
@@ -161,3 +163,52 @@ async def test_non_admin_native_security_is_conservative() -> None:
     advanced["triggers"] = [{"trigger": "template", "value_template": "{{ true }}"}]
     with pytest.raises(DefinitionError, match="administrator access"):
         await async_validate_native_observation_access(hass, advanced, "user-1")
+
+    denied_time_entity = _definition()
+    denied_time_entity["triggers"] = [{"trigger": "time", "at": "sensor.secret"}]
+    with pytest.raises(DefinitionError, match="not readable"):
+        await async_validate_native_observation_access(hass, denied_time_entity, "user-1")
+
+    templated_time = _definition()
+    templated_time["triggers"] = [{"trigger": "time", "at": "{{ states('sensor.secret') }}"}]
+    with pytest.raises(DefinitionError, match="templated observers"):
+        await async_validate_native_observation_access(hass, templated_time, "user-1")
+
+    templated_numeric = _definition()
+    templated_numeric["triggers"] = [
+        {
+            "trigger": "numeric_state",
+            "entity_id": "binary_sensor.allowed",
+            "above": 0,
+            "value_template": "{{ states('sensor.secret') }}",
+        }
+    ]
+    with pytest.raises(DefinitionError, match="templated observers"):
+        await async_validate_native_observation_access(hass, templated_numeric, "user-1")
+
+    denied_time_condition = _definition()
+    denied_time_condition["triggers"] = [
+        {"trigger": "state", "entity_id": "binary_sensor.allowed", "to": "on"}
+    ]
+    denied_time_condition["conditions"] = [
+        {"condition": "time", "after": "input_datetime.secret"}
+    ]
+    with pytest.raises(DefinitionError, match="not readable"):
+        await async_validate_native_observation_access(hass, denied_time_condition, "user-1")
+
+    templated_numeric_condition = _definition()
+    templated_numeric_condition["triggers"] = [
+        {"trigger": "state", "entity_id": "binary_sensor.allowed", "to": "on"}
+    ]
+    templated_numeric_condition["conditions"] = [
+        {
+            "condition": "numeric_state",
+            "entity_id": "binary_sensor.allowed",
+            "above": 0,
+            "value_template": "{{ states('sensor.secret') }}",
+        }
+    ]
+    with pytest.raises(DefinitionError, match="templated observers"):
+        await async_validate_native_observation_access(
+            hass, templated_numeric_condition, "user-1"
+        )
