@@ -13,6 +13,7 @@ from homeassistant.helpers import config_validation as cv
 from .lifecycle import LifecycleNotificationManager
 from .manager import AmbiguousReference, DefinitionError, NotFound, RevisionConflict
 from .models import NotificationRecord
+from .security import require_mutation_access
 
 WS_TYPE = "conditional_notifications"
 
@@ -43,6 +44,12 @@ def _resolve(
     reference: str,
 ) -> NotificationRecord:
     return manager.resolve(reference, connection.user.id, connection.user.is_admin)
+
+
+def _require_mutation(
+    record: NotificationRecord, connection: websocket_api.ActiveConnection
+) -> None:
+    require_mutation_access(record, connection.user.id, connection.user.is_admin)
 
 
 @websocket_api.websocket_command(
@@ -102,10 +109,12 @@ async def ws_update(
 ) -> None:
     try:
         manager = _manager(hass)
+        record = _resolve(manager, connection, msg["notification_id"])
+        _require_mutation(record, connection)
         connection.send_result(
             msg["id"],
             await manager.async_update(
-                _resolve(manager, connection, msg["notification_id"]),
+                record,
                 msg["changes"],
                 expected_revision=msg.get("expected_revision"),
             ),
@@ -142,6 +151,8 @@ async def ws_action(
         manager = _manager(hass)
         record = _resolve(manager, connection, msg["notification_id"])
         action = msg["action"]
+        if action != "duplicate":
+            _require_mutation(record, connection)
         if action == "pause":
             result = await manager.async_set_paused(record, True)
         elif action == "resume":

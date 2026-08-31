@@ -14,6 +14,7 @@ from .const import DOMAIN, NAME
 from .lifecycle import LifecycleNotificationManager
 from .manager import AmbiguousReference, NotFound
 from .models import NotificationRecord
+from .security import MutationForbidden, require_mutation_access
 
 
 async def _identity(hass: HomeAssistant, context: llm.LLMContext) -> tuple[str | None, bool]:
@@ -36,17 +37,27 @@ class _Tool(llm.Tool):
         return await _identity(hass, context)
 
     async def record(
-        self, hass: HomeAssistant, args: dict[str, Any], context: llm.LLMContext
+        self,
+        hass: HomeAssistant,
+        args: dict[str, Any],
+        context: llm.LLMContext,
+        *,
+        write: bool = False,
     ) -> NotificationRecord | dict[str, Any]:
         user_id, is_admin = await self.identity(hass, context)
         try:
-            return self.manager.resolve(
+            record = self.manager.resolve(
                 args["reference"], user_id, is_admin, entity_hint=args.get("entity_hint")
             )
+            if write:
+                require_mutation_access(record, user_id, is_admin)
+            return record
         except AmbiguousReference as err:
             return {"error": "ambiguous", "candidates": err.candidates}
         except NotFound as err:
             return {"error": "not_found", "message": str(err)}
+        except MutationForbidden as err:
+            return {"error": "forbidden", "message": str(err)}
 
 
 class CreateTool(_Tool):
@@ -107,7 +118,7 @@ class UpdateTool(_Tool):
     async def async_call(
         self, hass: HomeAssistant, tool_input: llm.ToolInput, llm_context: llm.LLMContext
     ) -> JsonObjectType:
-        record = await self.record(hass, tool_input.tool_args, llm_context)
+        record = await self.record(hass, tool_input.tool_args, llm_context, write=True)
         return (
             record
             if isinstance(record, dict)
@@ -143,10 +154,10 @@ class ActionTool(_Tool):
         self, hass: HomeAssistant, tool_input: llm.ToolInput, llm_context: llm.LLMContext
     ) -> JsonObjectType:
         args = tool_input.tool_args
-        record = await self.record(hass, args, llm_context)
+        action = args["action"]
+        record = await self.record(hass, args, llm_context, write=action != "duplicate")
         if isinstance(record, dict):
             return record
-        action = args["action"]
         if action == "pause":
             return await self.manager.async_set_paused(record, True)
         if action == "resume":

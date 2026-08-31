@@ -12,7 +12,8 @@ from .conditions import is_unknown_state, state_value
 from .delivery import async_clear
 from .manager import NotificationManager
 from .models import NotificationRecord, duration_seconds, parse_datetime, utc_iso
-from .validation import DefinitionError
+from .security import async_validate_observation_access
+from .validation import DefinitionError, validate_definition
 
 
 class LifecycleNotificationManager(NotificationManager):
@@ -107,6 +108,31 @@ class LifecycleNotificationManager(NotificationManager):
             return
         await super()._async_trigger(record_id, revision, combined)
 
+    async def async_create(
+        self, definition: dict[str, Any], owner_id: str | None
+    ) -> dict[str, Any]:
+        """Validate owner observation permissions before persisting a new record."""
+        normalized = validate_definition(definition)
+        await async_validate_observation_access(self.hass, normalized, owner_id)
+        return await super().async_create(definition, owner_id)
+
+    async def async_update(
+        self,
+        record: NotificationRecord,
+        changes: dict[str, Any],
+        *,
+        expected_revision: int | None = None,
+    ) -> dict[str, Any]:
+        """Reject observation-scope expansion before mutating durable state."""
+        self._require_current_record(record)
+        self._require_expected_revision(record, expected_revision)
+        merged = deepcopy(record.definition)
+        merged.update(changes)
+        merged["name"] = changes.get("name", record.name)
+        normalized = validate_definition(merged)
+        await async_validate_observation_access(self.hass, normalized, record.owner_id)
+        return await super().async_update(record, changes, expected_revision=expected_revision)
+
     async def async_rebuild(
         self,
         record: NotificationRecord,
@@ -114,6 +140,9 @@ class LifecycleNotificationManager(NotificationManager):
         allow_current: bool = False,
         prove_current_durations: bool = False,
     ) -> None:
+        # Re-check persisted ownership permissions on every rebuild. This also
+        # makes startup fail closed for legacy records which predate this boundary.
+        await async_validate_observation_access(self.hass, record.definition, record.owner_id)
         # Partial correlations are deliberately in-memory only. A rebuild or
         # restart starts a fresh correlation window rather than joining events
         # across an uncertain subscription gap.
