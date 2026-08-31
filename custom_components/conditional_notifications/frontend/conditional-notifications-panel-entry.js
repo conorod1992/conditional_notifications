@@ -179,9 +179,9 @@ function replaceWithNativeSelector(instance, path, selector, options = {}) {
   return replacement;
 }
 
-function replaceWithDurationSelector(instance, path) {
+function replaceWithDurationSelector(instance, path, label) {
   const control = selectorForPath(instance.shadowRoot, path);
-  if (!control || control.localName === "ha-selector" || !nativeSelectorsAvailable()) return;
+  if (!control || control.localName === "ha-selector" || !nativeSelectorsAvailable()) return false;
   const replacement = document.createElement("ha-selector");
   replacement.className = "native-ha-selector";
   replacement.hass = instance.hass;
@@ -191,6 +191,8 @@ function replaceWithDurationSelector(instance, path) {
   replacement.required = false;
   replacement.dataset.nativeDurationPath = path;
   control.replaceWith(replacement);
+  relabel(replacement, label);
+  return true;
 }
 
 panel.styles = function() {
@@ -273,10 +275,8 @@ panel.hydrateNativeSelectors = function() {
       });
     }
 
-    const durationControl = selectorForPath(root, `${base}.for`);
-    if (durationControl) {
-      relabel(durationControl, "Minimum duration");
-      replaceWithDurationSelector(this, `${base}.for`);
+    if (selectorForPath(root, `${base}.for`)) {
+      replaceWithDurationSelector(this, `${base}.for`, "Minimum duration");
     }
   }
 
@@ -318,10 +318,7 @@ panel.hydrateNativeSelectors = function() {
     ["debounce", "Debounce"],
     ["match_window", "Correlation window"],
   ]) {
-    const control = selectorForPath(root, path);
-    if (!control) continue;
-    relabel(control, label);
-    replaceWithDurationSelector(this, path);
+    if (selectorForPath(root, path)) replaceWithDurationSelector(this, path, label);
   }
 
   this.syncNativeSelectorContexts();
