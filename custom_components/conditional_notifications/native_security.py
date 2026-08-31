@@ -35,6 +35,7 @@ _SAFE_CONDITION_KINDS = {
     "or",
     "not",
 }
+_TEMPLATE_MARKERS = ("{{", "{%", "{#")
 
 
 def _as_entity_ids(value: Any) -> Iterable[str]:
@@ -63,6 +64,46 @@ def _require_entity_read(
             continue
         if not permissions.check_entity(entity_id, POLICY_READ):
             raise DefinitionError(path, "is not readable by the notification owner")
+
+
+def _require_non_templated(value: Any, path: str) -> None:
+    """Reject observer templates for non-admin owners.
+
+    Entity permissions cannot reliably constrain every object a Home Assistant
+    template can inspect, so native observer templates remain administrator-only.
+    """
+    if isinstance(value, str) and any(marker in value for marker in _TEMPLATE_MARKERS):
+        raise DefinitionError(path, "templated observers require administrator access")
+
+
+def _check_time_trigger_value(
+    value: Any,
+    path: str,
+    permissions: Any,
+    unrestricted: bool,
+) -> None:
+    """Authorize each literal/entity entry accepted by HA's time trigger."""
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            _check_time_trigger_value(
+                item,
+                f"{path}.{index}",
+                permissions,
+                unrestricted,
+            )
+        return
+    if isinstance(value, dict):
+        _require_entity_read(
+            permissions,
+            unrestricted,
+            value.get("entity_id"),
+            f"{path}.entity_id",
+        )
+        return
+    if isinstance(value, str):
+        _require_non_templated(value, path)
+        if _looks_like_entity_id(value):
+            _require_entity_read(permissions, unrestricted, value, path)
 
 
 def _check_native_trigger(
@@ -105,21 +146,22 @@ def _check_native_trigger(
     if kind == "zone":
         _require_entity_read(permissions, unrestricted, definition.get("zone"), f"{path}.zone")
     if kind == "numeric_state":
+        if "value_template" in definition:
+            raise DefinitionError(
+                f"{path}.value_template",
+                "templated observers require administrator access",
+            )
         for key in ("above", "below"):
             value = definition.get(key)
             if isinstance(value, str) and _looks_like_entity_id(value):
                 _require_entity_read(permissions, unrestricted, value, f"{path}.{key}")
     if kind == "time":
-        at = definition.get("at")
-        if isinstance(at, dict):
-            _require_entity_read(
-                permissions,
-                unrestricted,
-                at.get("entity_id"),
-                f"{path}.at.entity_id",
-            )
-        elif isinstance(at, str) and _looks_like_entity_id(at):
-            _require_entity_read(permissions, unrestricted, at, f"{path}.at")
+        _check_time_trigger_value(
+            definition.get("at"),
+            f"{path}.at",
+            permissions,
+            unrestricted,
+        )
     if kind == "event":
         event_type = definition.get("event_type")
         event_types = [event_type] if isinstance(event_type, str) else event_type
@@ -178,7 +220,17 @@ def _check_native_condition(
     if kind == "zone":
         _require_entity_read(permissions, unrestricted, definition.get("zone"), f"{path}.zone")
     if kind == "numeric_state":
+        if "value_template" in definition:
+            raise DefinitionError(
+                f"{path}.value_template",
+                "templated observers require administrator access",
+            )
         for key in ("above", "below"):
+            value = definition.get(key)
+            if isinstance(value, str) and _looks_like_entity_id(value):
+                _require_entity_read(permissions, unrestricted, value, f"{path}.{key}")
+    if kind == "time":
+        for key in ("after", "before"):
             value = definition.get(key)
             if isinstance(value, str) and _looks_like_entity_id(value):
                 _require_entity_read(permissions, unrestricted, value, f"{path}.{key}")
