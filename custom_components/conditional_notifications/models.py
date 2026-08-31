@@ -21,12 +21,17 @@ def utc_iso(now: datetime | None = None) -> str:
     return value.isoformat()
 
 
-def parse_datetime(value: str | None) -> datetime | None:
-    """Parse an ISO timestamp and require an offset."""
-    if not value:
+def parse_datetime(value: Any) -> datetime | None:
+    """Parse an ISO timestamp defensively and require an offset."""
+    if value is None or value == "":
         return None
-    result = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if result.tzinfo is None:
+    if not isinstance(value, str):
+        raise ValueError("datetime must be an ISO timestamp string")
+    try:
+        result = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as err:
+        raise ValueError("datetime must be a valid ISO timestamp") from err
+    if result.tzinfo is None or result.utcoffset() is None:
         raise ValueError("datetime must include a timezone offset")
     return result
 
@@ -153,8 +158,70 @@ class NotificationRecord:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> NotificationRecord:
+        """Restore one record only when its persisted envelope is structurally safe."""
+        if not isinstance(data, dict):
+            raise ValueError("record must be an object")
+
         fields = cls.__dataclass_fields__
-        return cls(**{key: value for key, value in data.items() if key in fields})
+        values = {key: value for key, value in data.items() if key in fields}
+
+        for key in ("id", "name", "created_at", "updated_at"):
+            value = values.get(key)
+            if not isinstance(value, str) or not value:
+                raise ValueError(f"record {key} must be a non-empty string")
+
+        for key in ("created_at", "updated_at"):
+            if parse_datetime(values[key]) is None:
+                raise ValueError(f"record {key} is required")
+
+        definition = values.get("definition")
+        if not isinstance(definition, dict):
+            raise ValueError("record definition must be an object")
+
+        owner_id = values.get("owner_id")
+        if owner_id is not None and not isinstance(owner_id, str):
+            raise ValueError("record owner_id must be a string or null")
+        values.setdefault("owner_id", None)
+
+        for key in ("semantic_key", "description", "last_ignored_reason"):
+            value = values.get(key)
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"record {key} must be a string or null")
+
+        for key in ("last_accepted_at", "last_trigger_at"):
+            value = values.get(key)
+            if value is not None:
+                if not isinstance(value, str):
+                    raise ValueError(f"record {key} must be a timestamp string or null")
+                if value and parse_datetime(value) is None:
+                    raise ValueError(f"record {key} must be a valid timestamp")
+
+        for key in ("enabled", "paused", "qualifying_match_seen", "active_occurrence"):
+            if key in values and not isinstance(values[key], bool):
+                raise ValueError(f"record {key} must be true or false")
+
+        for key, minimum in (("revision", 1), ("notification_count", 0)):
+            if key in values:
+                value = values[key]
+                if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+                    raise ValueError(f"record {key} must be an integer >= {minimum}")
+
+        status = values.get("status")
+        if status is not None and (not isinstance(status, str) or not status):
+            raise ValueError("record status must be a non-empty string")
+
+        last_trigger = values.get("last_trigger")
+        if last_trigger is not None and not isinstance(last_trigger, dict):
+            raise ValueError("record last_trigger must be an object or null")
+
+        last_delivery = values.get("last_delivery")
+        if last_delivery is not None and (
+            not isinstance(last_delivery, list)
+            or any(not isinstance(item, dict) for item in last_delivery)
+        ):
+            raise ValueError("record last_delivery must be a list of objects")
+
+        return cls(**values)
 
     def is_temporally_active(self, now: datetime) -> bool:
         available = parse_datetime(self.definition.get("available_from"))

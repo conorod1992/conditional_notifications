@@ -19,8 +19,14 @@ def test_state_requires_genuine_relevant_transition():
     definition = {"type": "state", "entity_id": "sensor.example", "to": "on"}
     assert _state_match(definition, state("off"), state("on"))
     assert not _state_match(definition, state("on"), state("on", friendly_name="Changed attribute"))
-    assert not _state_match(definition, None, state("on"))
+    assert _state_match(definition, None, state("on"))
     assert not _state_match(definition, state("off"), state("unavailable"))
+
+
+def test_from_only_state_matches_entity_removal():
+    definition = {"type": "state", "entity_id": "sensor.example", "from": "on"}
+    assert _state_match(definition, state("on"), None)
+    assert not _state_match(definition, state("off"), None)
 
 
 def test_attribute_state_transition():
