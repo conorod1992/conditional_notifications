@@ -437,9 +437,7 @@ def validate_definition(data: dict[str, Any], *, partial: bool = False) -> dict[
         elif not isinstance(resolve_when, dict):
             _error("resolve_when", "must be an object")
         else:
-            result["resolve_when"] = _validate_trigger(
-                resolve_when, "resolve_when", resolve=True
-            )
+            result["resolve_when"] = _validate_trigger(resolve_when, "resolve_when", resolve=True)
     text_limits = {
         "title": 255,
         "message": 4000,
