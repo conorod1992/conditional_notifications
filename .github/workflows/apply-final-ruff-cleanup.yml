@@ -1,0 +1,25 @@
+name: Apply final formatting cleanup
+on:
+  push:
+    branches: [fix/final-stale-lifecycle-races]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/final-stale-lifecycle-races
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: python .github/final_ruff_cleanup.py
+      - run: rm .github/final_ruff_cleanup.py .github/workflows/apply-final-ruff-cleanup.yml
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/test_lifecycle_concurrency_hardening.py .github
+          git diff --cached --check
+          git commit -m "style: apply final ruff formatting"
+          git push origin HEAD:fix/final-stale-lifecycle-races
