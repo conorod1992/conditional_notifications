@@ -8,9 +8,10 @@ from typing import Any
 
 from homeassistant.components.zone.condition import zone as zone_condition
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConditionError
+from homeassistant.exceptions import ConditionError, HomeAssistantError, TemplateError
 
 from .const import UNKNOWN_STATES, WEEKDAYS
+from .native_context import CURRENT_CONDITION_CHECKERS, CURRENT_TRIGGER
 
 
 def is_unknown_state(value: Any) -> bool:
@@ -40,12 +41,48 @@ def numeric_matches(value: float | None, definition: dict[str, Any]) -> bool:
     )
 
 
+def _evaluate_native_condition(
+    definition: dict[str, Any],
+) -> tuple[bool, dict[str, Any]]:
+    """Evaluate a pre-built HA condition checker, failing closed on errors."""
+    kind = definition.get("condition", "home_assistant")
+    checkers = CURRENT_CONDITION_CHECKERS.get() or {}
+    checker = checkers.get(id(definition))
+    if checker is None:
+        return False, {
+            "type": kind,
+            "native": True,
+            "passed": False,
+            "error": "condition checker is unavailable",
+        }
+
+    trigger = CURRENT_TRIGGER.get() or {}
+    try:
+        result = checker.async_check(variables={"trigger": trigger})
+        passed = result is not False
+        return passed, {"type": kind, "native": True, "passed": passed}
+    except (ConditionError, HomeAssistantError, TemplateError, TypeError, ValueError) as err:
+        return False, {
+            "type": kind,
+            "native": True,
+            "passed": False,
+            "error": str(err)[:300],
+        }
+
+
 def async_evaluate_conditions(
     hass: HomeAssistant, conditions: list[dict[str, Any]], now: datetime
 ) -> tuple[bool, list[dict[str, Any]]]:
     """Evaluate all conditions using AND semantics."""
     results: list[dict[str, Any]] = []
     for definition in conditions:
+        if "condition" in definition:
+            passed, detail = _evaluate_native_condition(definition)
+            results.append(detail)
+            if not passed:
+                return False, results
+            continue
+
         kind = definition["type"]
         passed = False
         actual: Any = None

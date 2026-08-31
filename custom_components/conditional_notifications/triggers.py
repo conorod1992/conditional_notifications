@@ -96,6 +96,7 @@ class RuntimeSubscriptions:
         self.hass = hass
         self.notification_id = notification_id
         self.revision = revision
+        self.native_condition_checkers: dict[int, Any] = {}
         self._unsubscribers: list[Callable[[], None]] = []
         self._duration: dict[int, Callable[[], None]] = {}
 

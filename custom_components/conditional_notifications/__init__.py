@@ -10,8 +10,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN, PANEL_PATH, PANEL_URL, PLATFORMS, VERSION
-from .lifecycle import LifecycleNotificationManager
 from .llm import async_register_llm_api
+from .native_manager import LifecycleNotificationManager
 from .services import async_register_services, async_unregister_services
 from .websocket import async_register_websocket
 
@@ -21,7 +21,8 @@ _BASE_PANEL_URL = "/conditional_notifications_panel_base.js"
 _STATUS_PANEL_URL = "/conditional_notifications_panel_status.js"
 _CORRELATION_PANEL_URL = "/conditional_notifications_panel_correlation.js"
 _LIFECYCLE_PANEL_URL = "/conditional_notifications_panel_lifecycle.js"
-_PANEL_ASSET_REVISION = "selectors1"
+_FIELD_SELECTOR_PANEL_URL = "/conditional_notifications_panel_field_selectors.js"
+_PANEL_ASSET_REVISION = "nativeautomation1"
 
 
 async def async_setup_entry(
@@ -44,7 +45,8 @@ async def async_setup_entry(
 
     if manager.options.get("panel_enabled", True):
         panel_dir = Path(__file__).parent / "frontend"
-        panel_file = panel_dir / "conditional-notifications-panel-entry.js"
+        panel_file = panel_dir / "conditional-notifications-panel-native-automation.js"
+        field_selector_panel_file = panel_dir / "conditional-notifications-panel-entry.js"
         lifecycle_panel_file = panel_dir / "conditional-notifications-panel-lifecycle.js"
         correlation_panel_file = panel_dir / "conditional-notifications-panel-correlation.js"
         status_panel_file = panel_dir / "conditional-notifications-panel-status.js"
@@ -54,6 +56,11 @@ async def async_setup_entry(
                 [
                     # Static routes live for the Home Assistant process lifetime.
                     StaticPathConfig(PANEL_URL, str(panel_file), cache_headers=False),
+                    StaticPathConfig(
+                        _FIELD_SELECTOR_PANEL_URL,
+                        str(field_selector_panel_file),
+                        cache_headers=False,
+                    ),
                     StaticPathConfig(
                         _LIFECYCLE_PANEL_URL,
                         str(lifecycle_panel_file),
