@@ -35,11 +35,11 @@ def _friendly(state: State | None, entity_id: str) -> str:
 
 
 def _state_match(definition: dict[str, Any], old: State | None, new: State | None) -> bool:
-    if old is None:
-        return False
     old_value = state_value(old, definition.get("attribute"))
     new_value = state_value(new, definition.get("attribute"))
-    if new_value is None or is_unknown_state(new_value) or old_value == new_value:
+    if old_value == new_value:
+        return False
+    if new_value is not None and is_unknown_state(new_value):
         return False
     return ("from" not in definition or old_value == definition["from"]) and (
         "to" not in definition or new_value == definition["to"]
@@ -162,7 +162,7 @@ def attach_trigger(
         def state_changed(event: Event) -> None:
             old: State | None = event.data.get("old_state")
             new: State | None = event.data.get("new_state")
-            if new is None:
+            if new is None and kind != "state":
                 runtime.cancel_duration(index)
                 return
             context: dict[str, Any]
@@ -171,7 +171,7 @@ def attach_trigger(
                 matches = _state_match(definition, old, new)
                 context = {
                     "entity_id": entity_id,
-                    "friendly_name": _friendly(new, entity_id),
+                    "friendly_name": _friendly(new or old, entity_id),
                     "from_state": state_value(old, definition.get("attribute")),
                     "to_state": state_value(new, definition.get("attribute")),
                     "attribute": definition.get("attribute"),
