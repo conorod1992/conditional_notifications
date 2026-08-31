@@ -417,10 +417,7 @@ panel.bind = function() {
 
   this.shadowRoot.querySelector("#native-resolve-toggle")?.addEventListener("change", event => {
     if (event.currentTarget.checked) {
-      const first = nativeTriggers(definition)[0];
-      definition.resolve_when = first
-        ? clone(first)
-        : {trigger:"state", entity_id:"", to:"off"};
+      definition.resolve_when = {trigger:"state", entity_id:"", to:"off"};
       this._nativeResolutionDraft = undefined;
       this._nativeResolutionError = undefined;
     } else {
