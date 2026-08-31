@@ -146,9 +146,7 @@ async def test_non_admin_native_security_is_conservative() -> None:
     hass = SimpleNamespace(auth=SimpleNamespace(async_get_user=AsyncMock(return_value=user)))
 
     allowed = _definition()
-    allowed["triggers"] = [
-        {"trigger": "state", "entity_id": "binary_sensor.allowed", "to": "on"}
-    ]
+    allowed["triggers"] = [{"trigger": "state", "entity_id": "binary_sensor.allowed", "to": "on"}]
     allowed["conditions"] = []
     await async_validate_native_observation_access(hass, allowed, "user-1")
 
@@ -190,9 +188,7 @@ async def test_non_admin_native_security_is_conservative() -> None:
     denied_time_condition["triggers"] = [
         {"trigger": "state", "entity_id": "binary_sensor.allowed", "to": "on"}
     ]
-    denied_time_condition["conditions"] = [
-        {"condition": "time", "after": "input_datetime.secret"}
-    ]
+    denied_time_condition["conditions"] = [{"condition": "time", "after": "input_datetime.secret"}]
     with pytest.raises(DefinitionError, match="not readable"):
         await async_validate_native_observation_access(hass, denied_time_condition, "user-1")
 
@@ -209,6 +205,4 @@ async def test_non_admin_native_security_is_conservative() -> None:
         }
     ]
     with pytest.raises(DefinitionError, match="templated observers"):
-        await async_validate_native_observation_access(
-            hass, templated_numeric_condition, "user-1"
-        )
+        await async_validate_native_observation_access(hass, templated_numeric_condition, "user-1")
