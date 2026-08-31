@@ -140,9 +140,7 @@ async def test_waiting_trigger_does_not_deliver_after_record_is_deleted(
 ) -> None:
     render = AsyncMock(return_value="rendered")
     deliver = AsyncMock(return_value=[{"channel": "test", "success": True}])
-    monkeypatch.setattr(
-        "custom_components.conditional_notifications.manager.async_render", render
-    )
+    monkeypatch.setattr("custom_components.conditional_notifications.manager.async_render", render)
     monkeypatch.setattr(
         "custom_components.conditional_notifications.manager.async_deliver", deliver
     )
@@ -169,9 +167,7 @@ async def test_waiting_resolution_has_no_side_effect_after_record_is_deleted(
     manager, monkeypatch
 ) -> None:
     clear = Mock()
-    monkeypatch.setattr(
-        "custom_components.conditional_notifications.manager.async_clear", clear
-    )
+    monkeypatch.setattr("custom_components.conditional_notifications.manager.async_clear", clear)
     record = NotificationRecord.create(definition(resolve=True), "u1")
     record.active_occurrence = True
     record.status = "active"
@@ -199,9 +195,7 @@ async def test_waiting_expiry_does_not_deliver_after_record_is_deleted(
 ) -> None:
     render = AsyncMock(return_value="rendered")
     deliver = AsyncMock(return_value=[{"channel": "test", "success": True}])
-    monkeypatch.setattr(
-        "custom_components.conditional_notifications.manager.async_render", render
-    )
+    monkeypatch.setattr("custom_components.conditional_notifications.manager.async_render", render)
     monkeypatch.setattr(
         "custom_components.conditional_notifications.manager.async_deliver", deliver
     )
