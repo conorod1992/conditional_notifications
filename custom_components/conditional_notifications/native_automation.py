@@ -87,7 +87,7 @@ def legacy_trigger_view(definition: dict[str, Any]) -> dict[str, Any] | None:
             if key not in definition:
                 continue
             value = definition[key]
-            if not isinstance(value, (str, int, float, bool)) and value is not None:
+            if not isinstance(value, str | int | float | bool) and value is not None:
                 return None
             result[key] = value
     elif kind == "numeric_state":
@@ -95,7 +95,7 @@ def legacy_trigger_view(definition: dict[str, Any]) -> dict[str, Any] | None:
             if key not in definition:
                 continue
             value = definition[key]
-            if not isinstance(value, (int, float)) or isinstance(value, bool):
+            if not isinstance(value, int | float) or isinstance(value, bool):
                 return None
             result[key] = value
     elif kind == "zone":
@@ -172,7 +172,7 @@ def _plain_value(value: Any, depth: int = 0) -> Any:
     """Convert HA runtime trigger payloads to durable JSON-like values."""
     if depth > 12:
         return "<maximum depth reached>"
-    if value is None or isinstance(value, (str, int, bool)):
+    if value is None or isinstance(value, str | int | bool):
         return value
     if isinstance(value, float):
         return value if math.isfinite(value) else str(value)
@@ -200,7 +200,7 @@ def _plain_value(value: Any, depth: int = 0) -> Any:
         return _plain_value(value.value, depth + 1)
     if isinstance(value, Mapping):
         return {str(key): _plain_value(item, depth + 1) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set, frozenset)):
+    if isinstance(value, list | tuple | set | frozenset):
         return [_plain_value(item, depth + 1) for item in value]
     return str(value)
 

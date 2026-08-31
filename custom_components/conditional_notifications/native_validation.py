@@ -7,7 +7,8 @@ from copy import deepcopy
 from typing import Any
 
 from .native_automation import is_native_condition, is_native_trigger
-from .validation import DefinitionError, validate_definition as _validate_legacy_definition
+from .validation import DefinitionError
+from .validation import validate_definition as _validate_legacy_definition
 
 _MAX_NATIVE_DEPTH = 12
 _MAX_NATIVE_NODES = 3000

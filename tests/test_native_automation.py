@@ -7,7 +7,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-
 from custom_components.conditional_notifications.conditions import async_evaluate_conditions
 from custom_components.conditional_notifications.native_automation import (
     is_native_trigger,
