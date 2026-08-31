@@ -27,7 +27,11 @@ _LOGGER = logging.getLogger(__name__)
 
 def is_native_trigger(definition: dict[str, Any]) -> bool:
     """Return whether a trigger uses Home Assistant's native trigger schema."""
-    return "trigger" in definition or "platform" in definition
+    return (
+        "trigger" in definition
+        or "platform" in definition
+        or ("triggers" in definition and "type" not in definition)
+    )
 
 
 def is_native_condition(definition: dict[str, Any]) -> bool:
@@ -40,6 +44,8 @@ def trigger_kind(definition: dict[str, Any] | None) -> str | None:
     if not definition:
         return None
     if is_native_trigger(definition):
+        if "triggers" in definition and "trigger" not in definition and "platform" not in definition:
+            return "group"
         value = definition.get("trigger", definition.get("platform"))
         return value if isinstance(value, str) else None
     value = definition.get("type")
