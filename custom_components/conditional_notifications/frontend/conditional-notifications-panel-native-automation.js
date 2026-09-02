@@ -175,6 +175,17 @@ function syncNativeAutomationSelectorValue(selector, value) {
   if (!selector) return;
   const next = clone(value);
 
+  // Capture whether HA's rendered list needs controlled-component feedback
+  // before mutating the outer selector value. The condition selector passes
+  // its value array straight through to ha-automation-condition, so both can
+  // share the same array object. Mutating that array first makes a newly added
+  // condition look synchronized even though Lit was never asked to rerender it.
+  const list = findNativeAutomationList(selector.shadowRoot);
+  const property = list?.localName === "ha-automation-condition" ? "conditions" : "triggers";
+  const listNeedsUpdate = Boolean(
+    list && !sameAutomationValue(list[property], next),
+  );
+
   // The selector is a controlled component, but assigning selector.value on
   // every field change makes Lit rebuild HA's automation row. That closes the
   // expanded editor and can reset transient controls such as choose selectors.
@@ -185,13 +196,10 @@ function syncNativeAutomationSelectorValue(selector, value) {
     selector.value = next;
   }
 
-  // HA already updates its inner list locally for ordinary field edits. Only
-  // push a new list into that component for structural changes (for example,
-  // Add/Duplicate) where HA emitted a value without first updating the list.
-  const list = findNativeAutomationList(selector.shadowRoot);
-  if (!list) return;
-  const property = list.localName === "ha-automation-condition" ? "conditions" : "triggers";
-  if (!sameAutomationValue(list[property], next)) {
+  // HA updates its inner list itself for ordinary field edits. Add, Duplicate,
+  // Paste and Insert After emit a replacement list without assigning it first;
+  // feed those structural changes back explicitly so they appear immediately.
+  if (listNeedsUpdate) {
     list[property] = clone(next);
   }
 }
