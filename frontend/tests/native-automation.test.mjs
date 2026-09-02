@@ -11,6 +11,7 @@ globalThis.customElements = {
 
 const {
   constrainNativeAutomationTree,
+  ensureNativeAutomationTranslations,
   mergeNativeTriggers,
   simpleCurrentStateCandidate,
   syncNativeAutomationSelectorValue,
@@ -127,6 +128,32 @@ test("native HA selectors receive emitted values back immediately", () => {
   assert.notEqual(selector.value, emitted);
   emitted[0].at = "09:00:00";
   assert.equal(selector.value[0].at, "08:00:00");
+});
+
+
+test("native automation translations load once before the editor opens", async () => {
+  let calls = 0;
+  let finishLoad;
+  const pending = new Promise(resolve => { finishLoad = resolve; });
+  const instance = {
+    hass:{
+      loadFragmentTranslation:key => {
+        calls += 1;
+        assert.equal(key, "config");
+        return pending;
+      },
+    },
+  };
+
+  const first = ensureNativeAutomationTranslations(instance);
+  const second = ensureNativeAutomationTranslations(instance);
+  assert.equal(first, second);
+  assert.equal(calls, 1);
+
+  finishLoad();
+  await first;
+  await ensureNativeAutomationTranslations(instance);
+  assert.equal(calls, 1);
 });
 
 
