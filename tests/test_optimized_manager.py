@@ -41,7 +41,11 @@ def _manager(record: Any) -> tuple[LifecycleNotificationManager, _FakeStore, lis
     store = _FakeStore(record)
     manager.store = store
     broadcasts: list[str] = []
-    manager._broadcast = lambda event, _record, _record_id: broadcasts.append(event)
+
+    def broadcast(event: str, _record: Any, _record_id: str) -> None:
+        broadcasts.append(event)
+
+    manager._broadcast = broadcast
     return manager, store, broadcasts
 
 
