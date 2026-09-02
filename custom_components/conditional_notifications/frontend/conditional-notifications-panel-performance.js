@@ -159,7 +159,10 @@ panel.ensureHistoryLoaded = function(force = false) {
       }
       return this.history;
     } finally {
-      if (this.historyPromise === promise) this.historyPromise = undefined;
+      if (this.historyPromise === promise) {
+        this.historyPromise = undefined;
+        if (this.historyGeneration === generation) this.historyLoading = false;
+      }
     }
   })();
 
@@ -240,12 +243,15 @@ panel.bind = function() {
     void this.ensureHistoryLoaded();
   });
 
-  root.addEventListener("click", event => {
-    const target = event.composedPath?.()[0] || event.target;
-    if (target?.closest?.("[data-details],[data-details-card]")) {
-      void this.ensureHistoryLoaded();
-    }
-  }, {capture:true});
+  if (!this._conditionalNotificationsHistoryClickHandler) {
+    this._conditionalNotificationsHistoryClickHandler = event => {
+      const target = event.composedPath?.()[0] || event.target;
+      if (target?.closest?.("[data-details],[data-details-card]")) {
+        void this.ensureHistoryLoaded();
+      }
+    };
+    root.addEventListener("click", this._conditionalNotificationsHistoryClickHandler, {capture:true});
+  }
 };
 
 panel.render = function() {
@@ -272,6 +278,14 @@ panel.render = function() {
 };
 
 panel.disconnectedCallback = function() {
+  if (this._conditionalNotificationsHistoryClickHandler && this.shadowRoot) {
+    this.shadowRoot.removeEventListener(
+      "click",
+      this._conditionalNotificationsHistoryClickHandler,
+      {capture:true},
+    );
+    this._conditionalNotificationsHistoryClickHandler = undefined;
+  }
   clearTimeout(this.historyRefreshTimer);
   this.historyRefreshTimer = undefined;
   this.historyGeneration = (this.historyGeneration || 0) + 1;

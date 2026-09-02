@@ -184,3 +184,30 @@ test("custom delivery requires a selected channel", () => {
   valid.delivery.notify_entities = ["notify.phone"];
   assert.equal(panel.validate.call(context, valid).delivery, undefined);
 });
+
+test("duplicate actions are coalesced while the first request is pending", async () => {
+  let resolveAction;
+  let calls = 0;
+  const pending = new Promise(resolve => { resolveAction = resolve; });
+  const context = {
+    hass:{callWS:async () => { calls += 1; await pending; return {}; }},
+    showToast(){},
+    async refresh(){},
+  };
+
+  const first = panel.action.call(context, "record-1", "duplicate");
+  const second = panel.action.call(context, "record-1", "duplicate");
+  assert.equal(calls, 1);
+  resolveAction();
+  await Promise.all([first, second]);
+  assert.equal(calls, 1);
+});
+
+test("invalid persisted dates fail soft instead of crashing the editor", () => {
+  assert.equal(panel.dateTimeValue("not-a-date"), "");
+  const context = {triggerSummary:panel.triggerSummary, conditionSummary:panel.conditionSummary, duration:panel.duration};
+  assert.doesNotThrow(() => panel.preview.call(context, {
+    triggers:[], conditions:[], repeat_policy:"once", delivery:{use_defaults:true},
+    available_from:"not-a-date", notify_on_expiry:false,
+  }));
+});

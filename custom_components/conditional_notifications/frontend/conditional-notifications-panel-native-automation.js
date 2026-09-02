@@ -145,13 +145,55 @@ function makeSelector(instance, selector, value, id) {
   return element;
 }
 
+function findNativeAutomationList(root) {
+  if (!root) return undefined;
+  if (["ha-automation-trigger", "ha-automation-condition"].includes(root.localName)) {
+    return root;
+  }
+  if (!root.querySelectorAll) return undefined;
+  for (const element of root.querySelectorAll("*")) {
+    if (["ha-automation-trigger", "ha-automation-condition"].includes(element.localName)) {
+      return element;
+    }
+    if (element.shadowRoot) {
+      const nested = findNativeAutomationList(element.shadowRoot);
+      if (nested) return nested;
+    }
+  }
+  return undefined;
+}
+
+function sameAutomationValue(left, right) {
+  try {
+    return JSON.stringify(left) === JSON.stringify(right);
+  } catch (_error) {
+    return false;
+  }
+}
+
 function syncNativeAutomationSelectorValue(selector, value) {
   if (!selector) return;
-  // HA's trigger/condition selectors are controlled components: the inner
-  // automation editor emits the new value but does not commit it to the
-  // selector host. Feed it back immediately so additions/removals render
-  // without waiting for some unrelated outer-panel rerender.
-  selector.value = clone(value);
+  const next = clone(value);
+
+  // The selector is a controlled component, but assigning selector.value on
+  // every field change makes Lit rebuild HA's automation row. That closes the
+  // expanded editor and can reset transient controls such as choose selectors.
+  // Keep the selector's model current without invoking its property setter.
+  if (Array.isArray(selector.value) && Array.isArray(next)) {
+    selector.value.splice(0, selector.value.length, ...next);
+  } else {
+    selector.value = next;
+  }
+
+  // HA already updates its inner list locally for ordinary field edits. Only
+  // push a new list into that component for structural changes (for example,
+  // Add/Duplicate) where HA emitted a value without first updating the list.
+  const list = findNativeAutomationList(selector.shadowRoot);
+  if (!list) return;
+  const property = list.localName === "ha-automation-condition" ? "conditions" : "triggers";
+  if (!sameAutomationValue(list[property], next)) {
+    list[property] = clone(next);
+  }
 }
 
 function ensureNativeAutomationTranslations(instance) {
@@ -211,6 +253,17 @@ const NATIVE_AUTOMATION_NEGATIVE_MARGIN_HOSTS = new Set([
   "ha-automation-condition-platform",
 ]);
 
+function isNativeAutomationTypeEditor(element) {
+  const owner = element.getRootNode?.()?.host?.localName;
+  return (
+    owner === "ha-automation-trigger-editor"
+    && element.localName?.startsWith("ha-automation-trigger-")
+  ) || (
+    owner === "ha-automation-condition-editor"
+    && element.localName?.startsWith("ha-automation-condition-")
+  );
+}
+
 function constrainNativeAutomationTree(root) {
   if (!root?.querySelectorAll) return;
   for (const element of root.querySelectorAll("*")) {
@@ -226,6 +279,12 @@ function constrainNativeAutomationTree(root) {
     // outside the available width, so neutralize only those two host margins.
     if (NATIVE_AUTOMATION_NEGATIVE_MARGIN_HOSTS.has(element.localName)) {
       element.style.marginInline = "0";
+    }
+    // Give the actual trigger/condition body a small inset without changing
+    // the HA row header/card geometry. For platform editors this also replaces
+    // HA's intentional negative gutter with a positive, bounded margin.
+    if (isNativeAutomationTypeEditor(element)) {
+      element.style.marginInline = "8px";
     }
     if (element.shadowRoot) constrainNativeAutomationTree(element.shadowRoot);
   }

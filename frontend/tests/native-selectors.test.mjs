@@ -129,3 +129,25 @@ test("selector-backed edits keep optimistic revision WebSocket compatibility", a
   assert.equal(calls[0].expected_revision, 7);
   assert.deepEqual(calls[0].changes, definition);
 });
+
+test("duplicate save clicks share one WebSocket mutation", async () => {
+  let resolveSave;
+  let calls = 0;
+  const pending = new Promise(resolve => { resolveSave = resolve; });
+  const context = {
+    editor:{id:undefined, definition:{name:"New"}},
+    validate:()=>({}),
+    hass:{callWS:async () => { calls += 1; await pending; }},
+    closeEditor(){this.editor = null;},
+    showToast(){},
+    async refresh(){},
+  };
+
+  const first = panel.save.call(context);
+  const second = panel.save.call(context);
+  assert.equal(first, second);
+  assert.equal(calls, 1);
+  resolveSave();
+  await first;
+  assert.equal(calls, 1);
+});

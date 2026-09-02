@@ -77,7 +77,7 @@ async function waitForCustomElement(name, timeoutMs = 5000) {
 function ensureNativeSelectorsLoaded() {
   if (nativeSelectorsAvailable()) return Promise.resolve(true);
   if (nativeSelectorLoadPromise) return nativeSelectorLoadPromise;
-  nativeSelectorLoadPromise = (async () => {
+  const promise = (async () => {
     if (typeof document === "undefined" || typeof customElements === "undefined") return false;
     try {
       await waitForCustomElement("partial-panel-resolver");
@@ -106,7 +106,11 @@ function ensureNativeSelectorsLoaded() {
       return false;
     }
   })();
-  return nativeSelectorLoadPromise;
+  nativeSelectorLoadPromise = promise;
+  void promise.finally(() => {
+    if (nativeSelectorLoadPromise === promise) nativeSelectorLoadPromise = undefined;
+  });
+  return promise;
 }
 
 function selectorForPath(root, path) {
@@ -369,37 +373,70 @@ panel.bind = function() {
   });
 };
 
-panel.save = async function() {
+panel.setEditorSavingState = function(saving) {
+  const dialog = this.shadowRoot?.querySelector(".dialog");
+  if (!dialog) return;
+  dialog.toggleAttribute("aria-busy", saving);
+  for (const selector of ["#save-editor", "#cancel-editor", "#close-editor"]) {
+    const button = dialog.querySelector(selector);
+    if (button) button.disabled = saving;
+  }
+  const save = dialog.querySelector("#save-editor");
+  if (!save) return;
+  if (saving) {
+    save.dataset.idleText ??= save.textContent;
+    save.textContent = "Saving…";
+  } else if (save.dataset.idleText) {
+    save.textContent = save.dataset.idleText;
+    delete save.dataset.idleText;
+  }
+};
+
+panel.save = function() {
+  if (this._conditionalNotificationsSavePromise) {
+    return this._conditionalNotificationsSavePromise;
+  }
   const definition = this.editor.definition;
   this.errors = this.validate(definition);
   if (Object.keys(this.errors).length) {
     this.showToast("Check the highlighted fields");
     this.render();
-    return;
+    return Promise.resolve();
   }
 
-  try {
-    const editing = Boolean(this.editor.id);
-    if (editing) {
-      await this.hass.callWS({
-        type: "conditional_notifications/update",
-        notification_id: this.editor.id,
-        changes: definition,
-        expected_revision: this.editor.original?.revision,
-      });
-    } else {
-      await this.hass.callWS({
-        type: "conditional_notifications/create",
-        definition,
-      });
+  this.setEditorSavingState?.(true);
+  let promise;
+  promise = (async () => {
+    try {
+      const editing = Boolean(this.editor.id);
+      if (editing) {
+        await this.hass.callWS({
+          type: "conditional_notifications/update",
+          notification_id: this.editor.id,
+          changes: definition,
+          expected_revision: this.editor.original?.revision,
+        });
+      } else {
+        await this.hass.callWS({
+          type: "conditional_notifications/create",
+          definition,
+        });
+      }
+      this.dirty = false;
+      this.closeEditor(true);
+      this.showToast(editing ? "Changes saved" : "Notification created");
+      await this.refresh();
+    } catch (error) {
+      this.showToast(error.message || String(error));
+    } finally {
+      if (this._conditionalNotificationsSavePromise === promise) {
+        this._conditionalNotificationsSavePromise = undefined;
+      }
+      if (this.editor) this.setEditorSavingState?.(false);
     }
-    this.dirty = false;
-    this.closeEditor(true);
-    this.showToast(editing ? "Changes saved" : "Notification created");
-    await this.refresh();
-  } catch (error) {
-    this.showToast(error.message || String(error));
-  }
+  })();
+  this._conditionalNotificationsSavePromise = promise;
+  return promise;
 };
 
 export { ConditionalNotificationsPanel };

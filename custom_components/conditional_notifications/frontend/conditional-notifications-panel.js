@@ -1,7 +1,16 @@
 const WS = "conditional_notifications";
 
 const esc = (value) => String(value ?? "").replace(/[&<>'"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
-const fmt = (value) => value ? new Intl.DateTimeFormat(undefined, {dateStyle:"medium", timeStyle:"short"}).format(new Date(value)) : "Not set";
+const fmt = (value) => {
+  if (!value) return "Not set";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Invalid date";
+  try {
+    return new Intl.DateTimeFormat(undefined, {dateStyle:"medium", timeStyle:"short"}).format(date);
+  } catch (_error) {
+    return "Invalid date";
+  }
+};
 const entityName = (id) => (id || "an entity").split(".").pop().replaceAll("_", " ").replace(/\b\w/g, c => c.toUpperCase());
 
 class ConditionalNotificationsPanel extends HTMLElement {
@@ -27,7 +36,7 @@ class ConditionalNotificationsPanel extends HTMLElement {
   }
   get hass() { return this._hass; }
   set panel(value) { this._panel = value; }
-  set narrow(value) { this._narrow = value; this.render(); }
+  set narrow(value) { if (this._narrow === value) return; this._narrow = value; this.render(); }
   set route(value) { this._route = value; }
 
   connectedCallback() {
@@ -65,12 +74,20 @@ class ConditionalNotificationsPanel extends HTMLElement {
   }
   async action(id, action) {
     if (action === "delete" && !confirm("Delete this conditional notification? This cannot be undone.")) return;
+    this.pendingActions ??= new Set();
+    const pendingKey = `${id}:${action}`;
+    if (this.pendingActions.has(pendingKey)) return;
+    this.pendingActions.add(pendingKey);
     try {
       const result = await this.hass.callWS({type:`${WS}/action`, notification_id:id, action});
       this.showToast(action === "test" ? "Test notification sent" : action === "duplicate" ? "Notification duplicated" : `${action[0].toUpperCase()}${action.slice(1)} complete`);
       if (result?.deleted && this.editor?.id === id) this.closeEditor(true);
       await this.refresh();
-    } catch (error) { this.showToast(error.message || String(error)); }
+    } catch (error) {
+      this.showToast(error.message || String(error));
+    } finally {
+      this.pendingActions.delete(pendingKey);
+    }
   }
 
   newDefinition(record) {
@@ -90,6 +107,10 @@ class ConditionalNotificationsPanel extends HTMLElement {
     requestAnimationFrame(() => this.shadowRoot.querySelector(".dialog input")?.focus());
   }
   closeEditor(force=false) {
+    if (!force && this._conditionalNotificationsSavePromise) {
+      this.showToast("Save in progress");
+      return;
+    }
     if (!force && this.dirty && !confirm("Discard your unsaved changes?")) return;
     this.editor = null; this.dirty = false; this.render();
   }
@@ -120,6 +141,7 @@ class ConditionalNotificationsPanel extends HTMLElement {
   dateTimeValue(value) {
     if (!value) return "";
     const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
     const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
     return local.toISOString().slice(0,16);
   }

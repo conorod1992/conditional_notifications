@@ -242,3 +242,18 @@ test("refresh keeps the canonical record list complete while searching", async (
   assert.deepEqual(calls[0], {type:"conditional_notifications/list"});
   assert.deepEqual(context.records, [{id:"door"},{id:"window"}]);
 });
+
+test("unchanged narrow property batches do not rebuild an open editor", () => {
+  let renders = 0;
+  const context = contextWith({
+    _narrow:false,
+    loaded:true,
+    render(){ renders += 1; },
+    shadowRoot:{querySelectorAll:() => []},
+  });
+
+  context.setProperties({narrow:false});
+  assert.equal(renders, 0);
+  context.setProperties({narrow:true});
+  assert.equal(renders, 1);
+});
