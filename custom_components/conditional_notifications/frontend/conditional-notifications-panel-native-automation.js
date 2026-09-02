@@ -135,11 +135,22 @@ function makeSelector(instance, selector, value, id) {
   element.id = id;
   element.className = "native-automation-selector";
   element.hass = instance.hass;
-  element.narrow = Boolean(instance._narrow);
+  // The HA automation editor is embedded in a bounded modal, so use its
+  // compact layout even when the overall Home Assistant viewport is wide.
+  element.narrow = true;
   element.selector = selector;
   element.value = clone(value);
   element.required = false;
   return element;
+}
+
+function syncNativeAutomationSelectorValue(selector, value) {
+  if (!selector) return;
+  // HA's trigger/condition selectors are controlled components: the inner
+  // automation editor emits the new value but does not commit it to the
+  // selector host. Feed it back immediately so additions/removals render
+  // without waiting for some unrelated outer-panel rerender.
+  selector.value = clone(value);
 }
 
 function entityLabel(instance, entityId) {
@@ -181,8 +192,8 @@ function createExternalTriggerRow(instance, trigger, originalIndex) {
 
 panel.styles = function() {
   return originalStyles.call(this).replace("</style>", `
-    .native-automation-editor{margin:12px 0 4px}
-    .native-automation-selector{display:block;width:100%;min-width:0}
+    .native-automation-editor{margin:12px 0 4px;min-width:0;max-width:100%;overflow-x:auto;overscroll-behavior-inline:contain}
+    .native-automation-selector{display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box}
     .native-editor-help{display:block;color:var(--secondary-text-color);font-size:13px;line-height:1.45;margin:4px 0 12px}
     .external-trigger-box{margin-top:16px;padding-top:14px;border-top:1px solid var(--divider-color)}
     .external-trigger-box>strong{display:block;margin-bottom:3px}
@@ -377,6 +388,7 @@ panel.bind = function() {
     const value = event.detail?.value ?? event.currentTarget.value ?? [];
     const replacement = Array.isArray(value) ? value : [value];
     definition.triggers = mergeNativeTriggers(definition.triggers, replacement);
+    syncNativeAutomationSelectorValue(event.currentTarget, replacement);
     if (!(definition.triggers || []).some(simpleCurrentStateCandidate)) {
       delete definition.match_current_state;
     }
@@ -387,6 +399,7 @@ panel.bind = function() {
   this.shadowRoot.querySelector("#native-ha-conditions")?.addEventListener("value-changed", event => {
     const value = event.detail?.value ?? event.currentTarget.value ?? [];
     definition.conditions = clone(Array.isArray(value) ? value : [value]);
+    syncNativeAutomationSelectorValue(event.currentTarget, definition.conditions);
     this.markDirty();
     this.updatePreview();
   });
@@ -448,6 +461,7 @@ panel.bind = function() {
     const value = event.detail?.value ?? event.currentTarget.value ?? [];
     const triggers = clone(Array.isArray(value) ? value : [value]);
     this._nativeResolutionDraft = triggers;
+    syncNativeAutomationSelectorValue(event.currentTarget, triggers);
     if (triggers.length === 1) {
       definition.resolve_when = triggers[0];
       this._nativeResolutionError = undefined;
@@ -493,6 +507,7 @@ export {
   ConditionalNotificationsPanel,
   mergeNativeTriggers,
   simpleCurrentStateCandidate,
+  syncNativeAutomationSelectorValue,
   toNativeCondition,
   toNativeTrigger,
 };
