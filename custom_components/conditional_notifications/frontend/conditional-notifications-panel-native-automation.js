@@ -153,6 +153,51 @@ function syncNativeAutomationSelectorValue(selector, value) {
   selector.value = clone(value);
 }
 
+const NATIVE_AUTOMATION_WIDTH_HOSTS = new Set([
+  "ha-selector-trigger",
+  "ha-selector-condition",
+  "ha-automation-trigger",
+  "ha-automation-condition",
+  "ha-sortable",
+  "ha-automation-trigger-row",
+  "ha-automation-condition-row",
+  "ha-card",
+  "ha-expansion-panel",
+  "ha-automation-trigger-editor",
+  "ha-automation-condition-editor",
+  "ha-form",
+]);
+
+function constrainNativeAutomationTree(root) {
+  if (!root?.querySelectorAll) return;
+  for (const element of root.querySelectorAll("*")) {
+    if (NATIVE_AUTOMATION_WIDTH_HOSTS.has(element.localName)) {
+      element.style.minWidth = "0";
+      element.style.maxWidth = "100%";
+      element.style.width = "100%";
+      element.style.boxSizing = "border-box";
+    }
+    if (element.shadowRoot) constrainNativeAutomationTree(element.shadowRoot);
+  }
+}
+
+function normalizeNativeAutomationLayout(selector) {
+  if (!selector) return;
+  selector.style.minWidth = "0";
+  selector.style.maxWidth = "100%";
+  selector.style.width = "100%";
+  selector.style.boxSizing = "border-box";
+
+  const apply = () => constrainNativeAutomationTree(selector.shadowRoot);
+  queueMicrotask(apply);
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(() => {
+      apply();
+      requestAnimationFrame(apply);
+    });
+  }
+}
+
 function entityLabel(instance, entityId) {
   if (!entityId) return "an entity";
   const state = instance.hass?.states?.[entityId];
@@ -192,8 +237,8 @@ function createExternalTriggerRow(instance, trigger, originalIndex) {
 
 panel.styles = function() {
   return originalStyles.call(this).replace("</style>", `
-    .native-automation-editor{margin:12px 0 4px;min-width:0;max-width:100%;overflow-x:auto;overscroll-behavior-inline:contain}
-    .native-automation-selector{display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box}
+    .native-automation-editor{margin:12px 0 4px;min-width:0;max-width:100%;width:100%;box-sizing:border-box;contain:inline-size;overflow-x:auto;overscroll-behavior-inline:contain}
+    .native-automation-selector{display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;contain:inline-size}
     .native-editor-help{display:block;color:var(--secondary-text-color);font-size:13px;line-height:1.45;margin:4px 0 12px}
     .external-trigger-box{margin-top:16px;padding-top:14px;border-top:1px solid var(--divider-color)}
     .external-trigger-box>strong{display:block;margin-bottom:3px}
@@ -365,6 +410,9 @@ panel.hydrateNativeAutomationEditors = function() {
     }
   }
 
+  this.shadowRoot.querySelectorAll(".native-automation-selector")
+    .forEach(normalizeNativeAutomationLayout);
+
   const matchCurrent = this.shadowRoot.querySelector('[data-path="match_current_state"]');
   if (matchCurrent) {
     const supported = (definition.triggers || []).some(simpleCurrentStateCandidate);
@@ -389,6 +437,7 @@ panel.bind = function() {
     const replacement = Array.isArray(value) ? value : [value];
     definition.triggers = mergeNativeTriggers(definition.triggers, replacement);
     syncNativeAutomationSelectorValue(event.currentTarget, replacement);
+    normalizeNativeAutomationLayout(event.currentTarget);
     if (!(definition.triggers || []).some(simpleCurrentStateCandidate)) {
       delete definition.match_current_state;
     }
@@ -400,6 +449,7 @@ panel.bind = function() {
     const value = event.detail?.value ?? event.currentTarget.value ?? [];
     definition.conditions = clone(Array.isArray(value) ? value : [value]);
     syncNativeAutomationSelectorValue(event.currentTarget, definition.conditions);
+    normalizeNativeAutomationLayout(event.currentTarget);
     this.markDirty();
     this.updatePreview();
   });
@@ -462,6 +512,7 @@ panel.bind = function() {
     const triggers = clone(Array.isArray(value) ? value : [value]);
     this._nativeResolutionDraft = triggers;
     syncNativeAutomationSelectorValue(event.currentTarget, triggers);
+    normalizeNativeAutomationLayout(event.currentTarget);
     if (triggers.length === 1) {
       definition.resolve_when = triggers[0];
       this._nativeResolutionError = undefined;
@@ -505,7 +556,9 @@ panel.save = async function() {
 
 export {
   ConditionalNotificationsPanel,
+  constrainNativeAutomationTree,
   mergeNativeTriggers,
+  normalizeNativeAutomationLayout,
   simpleCurrentStateCandidate,
   syncNativeAutomationSelectorValue,
   toNativeCondition,
