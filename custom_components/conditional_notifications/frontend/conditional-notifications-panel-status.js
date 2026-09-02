@@ -7,7 +7,16 @@ const originalHydrateEditor = panel.hydrateEditor;
 const originalRenderHistory = panel.renderHistory;
 
 const esc = (value) => String(value ?? "").replace(/[&<>'"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
-const fmt = (value) => value ? new Intl.DateTimeFormat(undefined, {dateStyle:"medium", timeStyle:"short"}).format(new Date(value)) : "Not set";
+const fmt = (value) => {
+  if (!value) return "Not set";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Invalid date";
+  try {
+    return new Intl.DateTimeFormat(undefined, {dateStyle:"medium", timeStyle:"short"}).format(date);
+  } catch (_error) {
+    return "Invalid date";
+  }
+};
 const label = (value) => String(value || "").replaceAll("_", " ").replace(/\b\w/g, c => c.toUpperCase());
 
 panel.eligibilitySummary = function(record, now = new Date()) {
@@ -60,6 +69,7 @@ panel.hydrateEditor = function() {
 
 panel.openDetails = function(record) {
   this.detailId = record?.id || null;
+  this._focusDetailsOnRender = Boolean(this.detailId);
   this.render();
 };
 
@@ -176,6 +186,11 @@ panel.bindDetails = function() {
   root.querySelector(".detail-scrim")?.addEventListener("click",event=>{
     if (event.target.classList.contains("detail-scrim")) this.closeDetails();
   });
+  root.querySelector(".detail-dialog")?.addEventListener("keydown", event => {
+    if (event.key !== "Escape" || event.defaultPrevented) return;
+    event.preventDefault();
+    this.closeDetails();
+  });
   root.querySelectorAll(".detail-dialog [data-action]").forEach(button=>button.addEventListener("click",event=>{
     event.stopPropagation();
     this.action(button.dataset.id, button.dataset.action);
@@ -191,6 +206,10 @@ panel.render = function() {
     return;
   }
   this.shadowRoot.insertAdjacentHTML("beforeend", markup);
+  if (this._focusDetailsOnRender) {
+    this._focusDetailsOnRender = false;
+    requestAnimationFrame(() => this.shadowRoot?.querySelector("#close-details")?.focus());
+  }
   const style = document.createElement("style");
   style.textContent = `
     .status-card{cursor:pointer}.status-card:focus-visible{outline:2px solid var(--primary-color);outline-offset:3px}

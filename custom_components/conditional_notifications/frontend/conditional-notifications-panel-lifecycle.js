@@ -218,8 +218,10 @@ panel.setProperties = function(properties) {
     this._route = properties.route;
   }
   if (Object.prototype.hasOwnProperty.call(properties, "narrow")) {
-    this._narrow = properties.narrow;
-    rerender = true;
+    if (this._narrow !== properties.narrow) {
+      this._narrow = properties.narrow;
+      rerender = true;
+    }
   }
   if (Object.prototype.hasOwnProperty.call(properties, "hass")) {
     this.applyHass(properties.hass);

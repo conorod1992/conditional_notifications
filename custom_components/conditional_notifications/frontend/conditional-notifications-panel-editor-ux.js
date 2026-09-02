@@ -6,6 +6,7 @@ const originalHydrateEditor = panel.hydrateEditor;
 const originalOpenEditor = panel.openEditor;
 const originalSave = panel.save;
 const originalStyles = panel.styles;
+const originalUpdatePreview = panel.updatePreview;
 
 const ADVANCED_HEADINGS = new Map([
   ["Schedule & expiry", "schedule"],
@@ -121,6 +122,64 @@ panel.styles = function() {
       .more-options .advanced{padding:0 15px 5px}
     }
   </style>`);
+};
+
+panel.syncEditorUxDynamicState = function() {
+  if (!this.editor || !this.shadowRoot) return;
+  const root = this.shadowRoot;
+
+  const review = root.querySelector(".editor-review");
+  if (review) {
+    const heading = review.querySelector("h3");
+    if (heading) {
+      heading.textContent = "Review";
+      if (!review.querySelector(".section-help")) {
+        heading.insertAdjacentElement(
+          "afterend",
+          makeTextElement(
+            "p",
+            "section-help",
+            "Check the plain-English summary before creating the notification.",
+          ),
+        );
+      }
+    }
+  }
+
+  const more = root.querySelector(".more-options");
+  if (!more) return;
+  const active = activeAdvancedOptions(this.editor.definition);
+  const activeKeys = new Set(active.map(item => item.key));
+  const summary = more.querySelector(":scope > summary");
+  if (summary) {
+    summary.replaceChildren(makeTextElement("span", "more-options-title", "More options"));
+    if (active.length) {
+      const badges = document.createElement("span");
+      badges.className = "more-options-active";
+      for (const item of active.slice(0, 3)) {
+        badges.append(makeTextElement("span", "option-chip", item.label));
+      }
+      if (active.length > 3) {
+        badges.append(makeTextElement("span", "option-chip", `+${active.length - 3}`));
+      }
+      summary.append(badges);
+    } else {
+      summary.append(makeTextElement("span", "more-options-hint", "Optional"));
+    }
+  }
+
+  for (const details of more.querySelectorAll(".advanced-disclosure[data-option-key]")) {
+    const state = details.querySelector(".advanced-option-state");
+    if (!state) continue;
+    const configured = activeKeys.has(details.dataset.optionKey);
+    state.textContent = configured ? "Configured" : "Optional";
+    state.classList.toggle("configured", configured);
+  }
+};
+
+panel.updatePreview = function() {
+  originalUpdatePreview.call(this);
+  this.syncEditorUxDynamicState();
 };
 
 panel.openEditor = function(record) {

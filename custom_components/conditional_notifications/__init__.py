@@ -17,7 +17,7 @@ from .websocket import async_register_websocket
 
 type ConditionalNotificationsConfigEntry = ConfigEntry[LifecycleNotificationManager]
 
-_PANEL_ASSET_REVISION = "translations1"
+_PANEL_ASSET_REVISION = "sweep2"
 _PANEL_MODULE_FILES = (
     "conditional-notifications-panel.js",
     "conditional-notifications-panel-status.js",
