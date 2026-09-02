@@ -6,7 +6,7 @@ from typing import Final
 
 DOMAIN: Final = "conditional_notifications"
 NAME: Final = "Conditional Notifications"
-VERSION: Final = "1.4.1"
+VERSION: Final = "1.4.2"
 STORAGE_KEY: Final = DOMAIN
 STORAGE_VERSION: Final = 1
 PLATFORMS: Final = ["sensor"]
