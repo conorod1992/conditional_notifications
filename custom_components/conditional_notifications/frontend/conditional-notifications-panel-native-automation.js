@@ -413,6 +413,9 @@ panel.hydrateNativeAutomationEditors = function() {
   this.shadowRoot.querySelectorAll(".native-automation-selector")
     .forEach(normalizeNativeAutomationLayout);
 
+  this.shadowRoot.querySelectorAll(".native-automation-selector")
+    .forEach(normalizeNativeAutomationLayout);
+
   const matchCurrent = this.shadowRoot.querySelector('[data-path="match_current_state"]');
   if (matchCurrent) {
     const supported = (definition.triggers || []).some(simpleCurrentStateCandidate);
@@ -438,6 +441,7 @@ panel.bind = function() {
     definition.triggers = mergeNativeTriggers(definition.triggers, replacement);
     syncNativeAutomationSelectorValue(event.currentTarget, replacement);
     normalizeNativeAutomationLayout(event.currentTarget);
+    normalizeNativeAutomationLayout(event.currentTarget);
     if (!(definition.triggers || []).some(simpleCurrentStateCandidate)) {
       delete definition.match_current_state;
     }
@@ -449,6 +453,7 @@ panel.bind = function() {
     const value = event.detail?.value ?? event.currentTarget.value ?? [];
     definition.conditions = clone(Array.isArray(value) ? value : [value]);
     syncNativeAutomationSelectorValue(event.currentTarget, definition.conditions);
+    normalizeNativeAutomationLayout(event.currentTarget);
     normalizeNativeAutomationLayout(event.currentTarget);
     this.markDirty();
     this.updatePreview();
@@ -512,6 +517,7 @@ panel.bind = function() {
     const triggers = clone(Array.isArray(value) ? value : [value]);
     this._nativeResolutionDraft = triggers;
     syncNativeAutomationSelectorValue(event.currentTarget, triggers);
+    normalizeNativeAutomationLayout(event.currentTarget);
     normalizeNativeAutomationLayout(event.currentTarget);
     if (triggers.length === 1) {
       definition.resolve_when = triggers[0];
