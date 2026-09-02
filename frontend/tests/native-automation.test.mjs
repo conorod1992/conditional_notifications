@@ -10,6 +10,7 @@ globalThis.customElements = {
 };
 
 const {
+  constrainNativeAutomationTree,
   mergeNativeTriggers,
   simpleCurrentStateCandidate,
   syncNativeAutomationSelectorValue,
@@ -126,4 +127,22 @@ test("native HA selectors receive emitted values back immediately", () => {
   assert.notEqual(selector.value, emitted);
   emitted[0].at = "09:00:00";
   assert.equal(selector.value[0].at, "08:00:00");
+});
+
+
+test("embedded native automation hosts are constrained to their container", () => {
+  const card = {localName:"ha-card", style:{}, shadowRoot:null};
+  const ignored = {localName:"span", style:{}, shadowRoot:null};
+  const nestedRoot = {querySelectorAll:() => [card, ignored]};
+  const row = {localName:"ha-automation-trigger-row", style:{}, shadowRoot:nestedRoot};
+  const root = {querySelectorAll:() => [row]};
+
+  constrainNativeAutomationTree(root);
+
+  assert.equal(row.style.minWidth, "0");
+  assert.equal(row.style.maxWidth, "100%");
+  assert.equal(row.style.width, "100%");
+  assert.equal(row.style.boxSizing, "border-box");
+  assert.equal(card.style.maxWidth, "100%");
+  assert.deepEqual(ignored.style, {});
 });
