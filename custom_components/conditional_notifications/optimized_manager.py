@@ -6,7 +6,9 @@ import asyncio
 from typing import Any
 
 from .models import NotificationRecord
-from .native_manager import LifecycleNotificationManager as NativeLifecycleNotificationManager
+from .native_manager import (
+    LifecycleNotificationManager as NativeLifecycleNotificationManager,
+)
 
 DEFAULT_IGNORED_COALESCE_SECONDS = 5.0
 
@@ -46,7 +48,9 @@ class LifecycleNotificationManager(NativeLifecycleNotificationManager):
             await self.store.async_save()
         self._broadcast("ignored", current, current.id)
 
-    async def _async_persist_ignored(self, record: NotificationRecord, reason: str) -> None:
+    async def _async_persist_ignored(
+        self, record: NotificationRecord, reason: str
+    ) -> None:
         """Persist a changed ignore reason now and coalesce exact repeats.
 
         Cooldown, debounce, active-period, and active-occurrence rejects can be
