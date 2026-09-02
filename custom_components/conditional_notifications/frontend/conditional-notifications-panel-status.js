@@ -1,5 +1,4 @@
-const baseUrl = typeof window === "undefined" ? "./conditional-notifications-panel.js" : "/conditional_notifications_panel_base.js";
-const { ConditionalNotificationsPanel } = await import(baseUrl);
+import { ConditionalNotificationsPanel } from "./conditional-notifications-panel.js";
 
 const panel = ConditionalNotificationsPanel.prototype;
 const originalRender = panel.render;

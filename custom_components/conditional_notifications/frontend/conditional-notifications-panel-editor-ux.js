@@ -1,8 +1,4 @@
-const nativeAutomationUrl = typeof window === "undefined"
-  ? "./conditional-notifications-panel-native-automation.js"
-  : "/conditional_notifications_panel_native_automation.js";
-
-const { ConditionalNotificationsPanel } = await import(nativeAutomationUrl);
+import { ConditionalNotificationsPanel } from "./conditional-notifications-panel-native-automation.js";
 
 const panel = ConditionalNotificationsPanel.prototype;
 const originalBind = panel.bind;

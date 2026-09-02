@@ -1,8 +1,4 @@
-const correlationUrl = typeof window === "undefined"
-  ? "./conditional-notifications-panel-correlation.js"
-  : "/conditional_notifications_panel_correlation.js";
-
-const { ConditionalNotificationsPanel } = await import(correlationUrl);
+import { ConditionalNotificationsPanel } from "./conditional-notifications-panel-correlation.js";
 
 const WS = "conditional_notifications";
 const LOAD_TIMEOUT_MS = 10000;

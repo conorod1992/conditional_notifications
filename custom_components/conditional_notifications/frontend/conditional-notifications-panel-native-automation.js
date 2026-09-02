@@ -1,8 +1,5 @@
-const fieldSelectorUrl = typeof window === "undefined"
-  ? "./conditional-notifications-panel-entry.js"
-  : "/conditional_notifications_panel_field_selectors.js";
+import { ConditionalNotificationsPanel } from "./conditional-notifications-panel-entry.js";
 
-const { ConditionalNotificationsPanel } = await import(fieldSelectorUrl);
 const panel = ConditionalNotificationsPanel.prototype;
 const originalHydrateEditor = panel.hydrateEditor;
 const originalBind = panel.bind;

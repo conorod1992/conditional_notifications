@@ -1,7 +1,4 @@
-const statusUrl = typeof window === "undefined"
-  ? "./conditional-notifications-panel-status.js"
-  : "/conditional_notifications_panel_status.js";
-const { ConditionalNotificationsPanel } = await import(statusUrl);
+import { ConditionalNotificationsPanel } from "./conditional-notifications-panel-status.js";
 
 const panel = ConditionalNotificationsPanel.prototype;
 const originalHydrateEditor = panel.hydrateEditor;
