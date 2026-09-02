@@ -48,9 +48,7 @@ class LifecycleNotificationManager(NativeLifecycleNotificationManager):
             await self.store.async_save()
         self._broadcast("ignored", current, current.id)
 
-    async def _async_persist_ignored(
-        self, record: NotificationRecord, reason: str
-    ) -> None:
+    async def _async_persist_ignored(self, record: NotificationRecord, reason: str) -> None:
         """Persist a changed ignore reason now and coalesce exact repeats.
 
         Cooldown, debounce, active-period, and active-occurrence rejects can be
@@ -74,14 +72,10 @@ class LifecycleNotificationManager(NativeLifecycleNotificationManager):
         if pending is not None and not pending.done():
             return
 
-        task = self._schedule_task(
-            self._flush_repeated_ignored(record.id, record.revision, reason)
-        )
+        task = self._schedule_task(self._flush_repeated_ignored(record.id, record.revision, reason))
         if task is None:
             return
         tasks[record.id] = task
         task.add_done_callback(
-            lambda completed, record_id=record.id: self._ignored_flush_done(
-                record_id, completed
-            )
+            lambda completed, record_id=record.id: self._ignored_flush_done(record_id, completed)
         )
