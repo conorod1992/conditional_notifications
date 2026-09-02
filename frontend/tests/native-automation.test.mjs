@@ -146,3 +146,24 @@ test("embedded native automation hosts are constrained to their container", () =
   assert.equal(card.style.maxWidth, "100%");
   assert.deepEqual(ignored.style, {});
 });
+
+test("HA platform trigger and condition gutters are neutralized", () => {
+  const triggerPlatform = {
+    localName:"ha-automation-trigger-platform",
+    style:{},
+    shadowRoot:null,
+  };
+  const conditionPlatform = {
+    localName:"ha-automation-condition-platform",
+    style:{},
+    shadowRoot:null,
+  };
+  const ignored = {localName:"span", style:{}, shadowRoot:null};
+  const root = {querySelectorAll:() => [triggerPlatform, conditionPlatform, ignored]};
+
+  constrainNativeAutomationTree(root);
+
+  assert.equal(triggerPlatform.style.marginInline, "0");
+  assert.equal(conditionPlatform.style.marginInline, "0");
+  assert.deepEqual(ignored.style, {});
+});

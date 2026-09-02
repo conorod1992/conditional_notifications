@@ -168,6 +168,11 @@ const NATIVE_AUTOMATION_WIDTH_HOSTS = new Set([
   "ha-form",
 ]);
 
+const NATIVE_AUTOMATION_NEGATIVE_MARGIN_HOSTS = new Set([
+  "ha-automation-trigger-platform",
+  "ha-automation-condition-platform",
+]);
+
 function constrainNativeAutomationTree(root) {
   if (!root?.querySelectorAll) return;
   for (const element of root.querySelectorAll("*")) {
@@ -176,6 +181,13 @@ function constrainNativeAutomationTree(root) {
       element.style.maxWidth = "100%";
       element.style.width = "100%";
       element.style.boxSizing = "border-box";
+    }
+    // Home Assistant's integration-provided trigger/condition platform editors
+    // deliberately bleed one spacing unit into the surrounding automation
+    // editor gutter. Inside our bounded card that negative inline margin is
+    // outside the available width, so neutralize only those two host margins.
+    if (NATIVE_AUTOMATION_NEGATIVE_MARGIN_HOSTS.has(element.localName)) {
+      element.style.marginInline = "0";
     }
     if (element.shadowRoot) constrainNativeAutomationTree(element.shadowRoot);
   }
