@@ -1,0 +1,226 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (X.Y.Z)"
+        required: true
+        type: string
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      source_sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Validate release target
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_VERSION: ${{ inputs.version }}
+        run: |
+          CURRENT_VERSION="$(python scripts/set_release_version.py --check)"
+          LATEST_TAG="$(gh api "repos/${{ github.repository }}/releases/latest" --jq .tag_name 2>/dev/null || true)"
+          LATEST_VERSION="${LATEST_TAG#v}"
+          if [[ -z "$LATEST_VERSION" ]]; then
+            LATEST_VERSION="0.0.0"
+          fi
+
+          python - "$CURRENT_VERSION" "$TARGET_VERSION" "$LATEST_VERSION" <<'PY'
+          import re
+          import sys
+
+          current, target, latest = sys.argv[1:4]
+          pattern = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
+          for label, value in (
+              ("tracked", current),
+              ("target", target),
+              ("latest published", latest),
+          ):
+              if not pattern.fullmatch(value):
+                  raise SystemExit(f"{label} version must use X.Y.Z format, got {value!r}")
+
+          def parts(value: str) -> tuple[int, int, int]:
+              return tuple(map(int, value.split(".")))
+
+          if parts(target) <= parts(latest):
+              raise SystemExit(
+                  f"Release version {target} must be newer than latest published {latest}"
+              )
+          if current not in {latest, target}:
+              raise SystemExit(
+                  "Tracked metadata must either match the latest published release "
+                  f"({latest}) or already be staged at the requested release ({target}); "
+                  f"found {current}"
+              )
+          PY
+
+          TAG="v$TARGET_VERSION"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists"
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists"
+            exit 1
+          fi
+
+          echo "version=$TARGET_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Capture immutable source commit
+        id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  validate:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout immutable release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - name: Stage and verify target version locally
+        run: |
+          python scripts/set_release_version.py "${{ needs.prepare.outputs.version }}"
+          python scripts/set_release_version.py --check
+          git diff --check
+
+      - name: Install test dependencies
+        run: pip install -r requirements_test.txt
+
+      - name: Run Python checks
+        run: |
+          ruff format --check .
+          ruff check .
+          mypy custom_components/conditional_notifications
+          pytest --cov=custom_components.conditional_notifications --cov-report=term-missing
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run frontend checks
+        working-directory: frontend
+        run: |
+          npm run lint
+          npm test
+          npm run build
+
+      - name: Verify build is reproducible
+        run: git diff --exit-code -- . ':!custom_components/conditional_notifications/const.py' ':!custom_components/conditional_notifications/manifest.json'
+
+      - name: HACS validation
+        uses: hacs/action@main
+        with:
+          category: integration
+
+      - name: Hassfest validation
+        uses: home-assistant/actions/hassfest@master
+
+  finalize:
+    needs:
+      - prepare
+      - validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout main for finalization
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Refuse to release from a stale source commit
+        env:
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+        run: |
+          git fetch origin main
+          MAIN_SHA="$(git rev-parse origin/main)"
+          if [[ "$MAIN_SHA" != "$SOURCE_SHA" ]]; then
+            echo "main moved from $SOURCE_SHA to $MAIN_SHA while release validation was running"
+            echo "No version commit or GitHub release has been created. Re-run Release from current main."
+            exit 1
+          fi
+          git checkout -B main origin/main
+
+      - name: Finalize synchronized release metadata
+        id: release_commit
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          python scripts/set_release_version.py "$VERSION"
+          python scripts/set_release_version.py --check
+          git diff --check
+
+          git add \
+            custom_components/conditional_notifications/const.py \
+            custom_components/conditional_notifications/manifest.json
+
+          if ! git diff --quiet; then
+            echo "Unexpected unstaged changes after release version synchronization:"
+            git diff --name-only
+            exit 1
+          fi
+
+          if git diff --cached --quiet; then
+            echo "Release metadata is already at $VERSION"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "chore: bump version to $VERSION"
+            git push origin HEAD:main
+          fi
+
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_SHA: ${{ steps.release_commit.outputs.sha }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists"
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists"
+            exit 1
+          fi
+
+          gh release create "$TAG" \
+            --target "$RELEASE_SHA" \
+            --title "$TAG" \
+            --generate-notes
