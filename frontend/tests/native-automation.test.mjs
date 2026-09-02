@@ -222,3 +222,37 @@ test("HA platform trigger and condition gutters are neutralized", () => {
   assert.equal(conditionPlatform.style.marginInline, "8px");
   assert.deepEqual(ignored.style, {});
 });
+
+test("structural condition changes rerender when HA shares the selector array", () => {
+  const shared = [{condition:"state",entity_id:"light.kitchen",state:"on"}];
+  let renderedValue = shared;
+  let renderedAssignments = 0;
+  const list = {
+    localName:"ha-automation-condition",
+    get conditions() { return renderedValue; },
+    set conditions(value) {
+      renderedAssignments += 1;
+      renderedValue = value;
+    },
+    shadowRoot:null,
+  };
+  const specialized = {
+    localName:"ha-selector-condition",
+    shadowRoot:{querySelectorAll:() => [list]},
+  };
+  const selector = {
+    value:shared,
+    shadowRoot:{querySelectorAll:() => [specialized]},
+  };
+  const emitted = [
+    {condition:"state",entity_id:"light.kitchen",state:"on"},
+    {condition:"time",after:"08:00:00"},
+  ];
+
+  syncNativeAutomationSelectorValue(selector, emitted);
+
+  assert.equal(renderedAssignments, 1);
+  assert.deepEqual(selector.value, emitted);
+  assert.deepEqual(renderedValue, emitted);
+  assert.notEqual(renderedValue, selector.value);
+});
