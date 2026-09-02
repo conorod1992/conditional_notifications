@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
-
 from custom_components.conditional_notifications.optimized_manager import (
     LifecycleNotificationManager,
 )
@@ -23,7 +22,7 @@ class _FakeStore:
 
 
 class _FakeHass:
-    data: dict[str, Any] = {}
+    data: ClassVar[dict[str, Any]] = {}
 
     def async_create_task(self, coroutine: Any, *, eager_start: bool = False) -> asyncio.Task[Any]:
         del eager_start
