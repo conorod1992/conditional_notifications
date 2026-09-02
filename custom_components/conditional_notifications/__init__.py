@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN, PANEL_PATH, PANEL_URL, PLATFORMS, VERSION
 from .llm import async_register_llm_api
-from .native_manager import LifecycleNotificationManager
+from .optimized_manager import LifecycleNotificationManager
 from .services import async_register_services, async_unregister_services
 from .websocket import async_register_websocket
 
@@ -23,7 +23,8 @@ _CORRELATION_PANEL_URL = "/conditional_notifications_panel_correlation.js"
 _LIFECYCLE_PANEL_URL = "/conditional_notifications_panel_lifecycle.js"
 _FIELD_SELECTOR_PANEL_URL = "/conditional_notifications_panel_field_selectors.js"
 _NATIVE_AUTOMATION_PANEL_URL = "/conditional_notifications_panel_native_automation.js"
-_PANEL_ASSET_REVISION = "editorux1"
+_EDITOR_UX_PANEL_URL = "/conditional_notifications_panel_editor_ux.js"
+_PANEL_ASSET_REVISION = "performance1"
 
 
 async def async_setup_entry(
@@ -46,7 +47,8 @@ async def async_setup_entry(
 
     if manager.options.get("panel_enabled", True):
         panel_dir = Path(__file__).parent / "frontend"
-        panel_file = panel_dir / "conditional-notifications-panel-editor-ux.js"
+        panel_file = panel_dir / "conditional-notifications-panel-performance.js"
+        editor_ux_panel_file = panel_dir / "conditional-notifications-panel-editor-ux.js"
         native_automation_panel_file = (
             panel_dir / "conditional-notifications-panel-native-automation.js"
         )
@@ -60,6 +62,11 @@ async def async_setup_entry(
                 [
                     # Static routes live for the Home Assistant process lifetime.
                     StaticPathConfig(PANEL_URL, str(panel_file), cache_headers=False),
+                    StaticPathConfig(
+                        _EDITOR_UX_PANEL_URL,
+                        str(editor_ux_panel_file),
+                        cache_headers=False,
+                    ),
                     StaticPathConfig(
                         _NATIVE_AUTOMATION_PANEL_URL,
                         str(native_automation_panel_file),
