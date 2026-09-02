@@ -12,6 +12,7 @@ globalThis.customElements = {
 const {
   mergeNativeTriggers,
   simpleCurrentStateCandidate,
+  syncNativeAutomationSelectorValue,
   toNativeCondition,
   toNativeTrigger,
 } = await import("../../custom_components/conditional_notifications/frontend/conditional-notifications-panel-native-automation.js");
@@ -112,4 +113,17 @@ test("already-native trigger groups are preserved for backend OR semantics", () 
   };
   assert.deepEqual(toNativeTrigger(group),group);
   assert.notEqual(toNativeTrigger(group),group);
+});
+
+
+test("native HA selectors receive emitted values back immediately", () => {
+  const selector = {value:undefined};
+  const emitted = [{trigger:"time",at:"08:00:00"}];
+
+  syncNativeAutomationSelectorValue(selector, emitted);
+
+  assert.deepEqual(selector.value, emitted);
+  assert.notEqual(selector.value, emitted);
+  emitted[0].at = "09:00:00";
+  assert.equal(selector.value[0].at, "08:00:00");
 });
