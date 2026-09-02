@@ -1,8 +1,5 @@
-const lifecycleUrl = typeof window === "undefined"
-  ? "./conditional-notifications-panel-lifecycle.js"
-  : "/conditional_notifications_panel_lifecycle.js";
+import { ConditionalNotificationsPanel } from "./conditional-notifications-panel-lifecycle.js";
 
-const { ConditionalNotificationsPanel } = await import(lifecycleUrl);
 const panel = ConditionalNotificationsPanel.prototype;
 const originalHydrateEditor = panel.hydrateEditor;
 const originalBind = panel.bind;

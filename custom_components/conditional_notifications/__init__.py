@@ -17,14 +17,16 @@ from .websocket import async_register_websocket
 
 type ConditionalNotificationsConfigEntry = ConfigEntry[LifecycleNotificationManager]
 
-_BASE_PANEL_URL = "/conditional_notifications_panel_base.js"
-_STATUS_PANEL_URL = "/conditional_notifications_panel_status.js"
-_CORRELATION_PANEL_URL = "/conditional_notifications_panel_correlation.js"
-_LIFECYCLE_PANEL_URL = "/conditional_notifications_panel_lifecycle.js"
-_FIELD_SELECTOR_PANEL_URL = "/conditional_notifications_panel_field_selectors.js"
-_NATIVE_AUTOMATION_PANEL_URL = "/conditional_notifications_panel_native_automation.js"
-_EDITOR_UX_PANEL_URL = "/conditional_notifications_panel_editor_ux.js"
-_PANEL_ASSET_REVISION = "performance1"
+_PANEL_ASSET_REVISION = "modules1"
+_PANEL_MODULE_FILES = (
+    "conditional-notifications-panel.js",
+    "conditional-notifications-panel-status.js",
+    "conditional-notifications-panel-correlation.js",
+    "conditional-notifications-panel-lifecycle.js",
+    "conditional-notifications-panel-entry.js",
+    "conditional-notifications-panel-native-automation.js",
+    "conditional-notifications-panel-editor-ux.js",
+)
 
 
 async def async_setup_entry(
@@ -48,57 +50,19 @@ async def async_setup_entry(
     if manager.options.get("panel_enabled", True):
         panel_dir = Path(__file__).parent / "frontend"
         panel_file = panel_dir / "conditional-notifications-panel-performance.js"
-        editor_ux_panel_file = panel_dir / "conditional-notifications-panel-editor-ux.js"
-        native_automation_panel_file = (
-            panel_dir / "conditional-notifications-panel-native-automation.js"
-        )
-        field_selector_panel_file = panel_dir / "conditional-notifications-panel-entry.js"
-        lifecycle_panel_file = panel_dir / "conditional-notifications-panel-lifecycle.js"
-        correlation_panel_file = panel_dir / "conditional-notifications-panel-correlation.js"
-        status_panel_file = panel_dir / "conditional-notifications-panel-status.js"
-        base_panel_file = panel_dir / "conditional-notifications-panel.js"
         if not domain_data.get("static_paths_registered"):
-            await hass.http.async_register_static_paths(
-                [
-                    # Static routes live for the Home Assistant process lifetime.
-                    StaticPathConfig(PANEL_URL, str(panel_file), cache_headers=False),
+            static_paths = [
+                StaticPathConfig(PANEL_URL, str(panel_file), cache_headers=False),
+                *(
                     StaticPathConfig(
-                        _EDITOR_UX_PANEL_URL,
-                        str(editor_ux_panel_file),
+                        f"/{filename}",
+                        str(panel_dir / filename),
                         cache_headers=False,
-                    ),
-                    StaticPathConfig(
-                        _NATIVE_AUTOMATION_PANEL_URL,
-                        str(native_automation_panel_file),
-                        cache_headers=False,
-                    ),
-                    StaticPathConfig(
-                        _FIELD_SELECTOR_PANEL_URL,
-                        str(field_selector_panel_file),
-                        cache_headers=False,
-                    ),
-                    StaticPathConfig(
-                        _LIFECYCLE_PANEL_URL,
-                        str(lifecycle_panel_file),
-                        cache_headers=False,
-                    ),
-                    StaticPathConfig(
-                        _CORRELATION_PANEL_URL,
-                        str(correlation_panel_file),
-                        cache_headers=False,
-                    ),
-                    StaticPathConfig(
-                        _STATUS_PANEL_URL,
-                        str(status_panel_file),
-                        cache_headers=False,
-                    ),
-                    StaticPathConfig(
-                        _BASE_PANEL_URL,
-                        str(base_panel_file),
-                        cache_headers=False,
-                    ),
-                ]
-            )
+                    )
+                    for filename in _PANEL_MODULE_FILES
+                ),
+            ]
+            await hass.http.async_register_static_paths(static_paths)
             domain_data["static_paths_registered"] = True
         frontend.async_register_built_in_panel(
             hass,

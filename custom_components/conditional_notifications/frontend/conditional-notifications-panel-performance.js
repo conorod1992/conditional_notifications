@@ -1,8 +1,4 @@
-const editorUxUrl = typeof window === "undefined"
-  ? "./conditional-notifications-panel-editor-ux.js"
-  : "/conditional_notifications_panel_editor_ux.js";
-
-const { ConditionalNotificationsPanel } = await import(editorUxUrl);
+import { ConditionalNotificationsPanel } from "./conditional-notifications-panel-editor-ux.js";
 
 const WS = "conditional_notifications";
 const LOAD_TIMEOUT_MS = 10000;
