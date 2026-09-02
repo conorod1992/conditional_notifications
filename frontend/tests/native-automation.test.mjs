@@ -11,6 +11,7 @@ globalThis.customElements = {
 
 const {
   constrainNativeAutomationTree,
+  ensureNativeAutomationTranslations,
   mergeNativeTriggers,
   simpleCurrentStateCandidate,
   syncNativeAutomationSelectorValue,
@@ -130,6 +131,58 @@ test("native HA selectors receive emitted values back immediately", () => {
 });
 
 
+test("native field edits keep HA's already-updated automation list instance", () => {
+  const renderedValue = [{trigger:"state",entity_id:"light.kitchen",to:"on"}];
+  let renderedAssignments = 0;
+  const list = {
+    localName:"ha-automation-trigger",
+    get triggers() { return renderedValue; },
+    set triggers(_value) { renderedAssignments += 1; },
+    shadowRoot:null,
+  };
+  const specialized = {
+    localName:"ha-selector-trigger",
+    shadowRoot:{querySelectorAll:() => [list]},
+  };
+  const selectorValue = [{trigger:"state",entity_id:"light.kitchen",to:"off"}];
+  const selector = {
+    value:selectorValue,
+    shadowRoot:{querySelectorAll:() => [specialized]},
+  };
+
+  syncNativeAutomationSelectorValue(selector, renderedValue);
+
+  assert.equal(selector.value, selectorValue);
+  assert.deepEqual(selector.value, renderedValue);
+  assert.equal(renderedAssignments, 0);
+});
+
+test("native automation translations load once before the editor opens", async () => {
+  let calls = 0;
+  let finishLoad;
+  const pending = new Promise(resolve => { finishLoad = resolve; });
+  const instance = {
+    hass:{
+      loadFragmentTranslation:key => {
+        calls += 1;
+        assert.equal(key, "config");
+        return pending;
+      },
+    },
+  };
+
+  const first = ensureNativeAutomationTranslations(instance);
+  const second = ensureNativeAutomationTranslations(instance);
+  assert.equal(first, second);
+  assert.equal(calls, 1);
+
+  finishLoad();
+  await first;
+  await ensureNativeAutomationTranslations(instance);
+  assert.equal(calls, 1);
+});
+
+
 test("embedded native automation hosts are constrained to their container", () => {
   const card = {localName:"ha-card", style:{}, shadowRoot:null};
   const ignored = {localName:"span", style:{}, shadowRoot:null};
@@ -152,18 +205,20 @@ test("HA platform trigger and condition gutters are neutralized", () => {
     localName:"ha-automation-trigger-platform",
     style:{},
     shadowRoot:null,
+    getRootNode:() => ({host:{localName:"ha-automation-trigger-editor"}}),
   };
   const conditionPlatform = {
     localName:"ha-automation-condition-platform",
     style:{},
     shadowRoot:null,
+    getRootNode:() => ({host:{localName:"ha-automation-condition-editor"}}),
   };
   const ignored = {localName:"span", style:{}, shadowRoot:null};
   const root = {querySelectorAll:() => [triggerPlatform, conditionPlatform, ignored]};
 
   constrainNativeAutomationTree(root);
 
-  assert.equal(triggerPlatform.style.marginInline, "0");
-  assert.equal(conditionPlatform.style.marginInline, "0");
+  assert.equal(triggerPlatform.style.marginInline, "8px");
+  assert.equal(conditionPlatform.style.marginInline, "8px");
   assert.deepEqual(ignored.style, {});
 });
