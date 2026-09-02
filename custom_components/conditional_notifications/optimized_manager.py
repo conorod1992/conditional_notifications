@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from functools import partial
 from typing import Any
 
 from .models import NotificationRecord
@@ -76,6 +77,4 @@ class LifecycleNotificationManager(NativeLifecycleNotificationManager):
         if task is None:
             return
         tasks[record.id] = task
-        task.add_done_callback(
-            lambda completed, record_id=record.id: self._ignored_flush_done(record_id, completed)
-        )
+        task.add_done_callback(partial(self._ignored_flush_done, record.id))
