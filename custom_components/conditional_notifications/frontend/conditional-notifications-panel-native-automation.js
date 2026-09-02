@@ -2,6 +2,7 @@ import { ConditionalNotificationsPanel } from "./conditional-notifications-panel
 
 const panel = ConditionalNotificationsPanel.prototype;
 const originalHydrateEditor = panel.hydrateEditor;
+const originalOpenEditor = panel.openEditor;
 const originalBind = panel.bind;
 const originalValidate = panel.validate;
 const originalSave = panel.save;
@@ -153,6 +154,43 @@ function syncNativeAutomationSelectorValue(selector, value) {
   selector.value = clone(value);
 }
 
+function ensureNativeAutomationTranslations(instance) {
+  if (instance._nativeAutomationTranslationsLoaded) return Promise.resolve();
+  if (instance._nativeAutomationTranslationsPromise) {
+    return instance._nativeAutomationTranslationsPromise;
+  }
+
+  const loader = instance.hass?.loadFragmentTranslation;
+  if (typeof loader !== "function") {
+    instance._nativeAutomationTranslationsLoaded = true;
+    return Promise.resolve();
+  }
+
+  let loadResult;
+  try {
+    loadResult = loader.call(instance.hass, "config");
+  } catch (error) {
+    console.warn("Unable to load Home Assistant automation translations", error);
+    return Promise.resolve();
+  }
+
+  let promise;
+  promise = Promise.resolve(loadResult)
+    .then(() => {
+      instance._nativeAutomationTranslationsLoaded = true;
+    })
+    .catch(error => {
+      console.warn("Unable to load Home Assistant automation translations", error);
+    })
+    .finally(() => {
+      if (instance._nativeAutomationTranslationsPromise === promise) {
+        instance._nativeAutomationTranslationsPromise = undefined;
+      }
+    });
+  instance._nativeAutomationTranslationsPromise = promise;
+  return promise;
+}
+
 const NATIVE_AUTOMATION_WIDTH_HOSTS = new Set([
   "ha-selector-trigger",
   "ha-selector-condition",
@@ -249,7 +287,7 @@ function createExternalTriggerRow(instance, trigger, originalIndex) {
 
 panel.styles = function() {
   return originalStyles.call(this).replace("</style>", `
-    .native-automation-editor{margin:12px 0 4px;min-width:0;max-width:100%;width:100%;box-sizing:border-box;contain:inline-size;overflow-x:auto;overscroll-behavior-inline:contain}
+    .native-automation-editor{margin:12px 0 4px;padding-inline:8px;min-width:0;max-width:100%;width:100%;box-sizing:border-box;contain:inline-size;overflow-x:auto;overscroll-behavior-inline:contain}
     .native-automation-selector{display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;contain:inline-size}
     .native-editor-help{display:block;color:var(--secondary-text-color);font-size:13px;line-height:1.45;margin:4px 0 12px}
     .external-trigger-box{margin-top:16px;padding-top:14px;border-top:1px solid var(--divider-color)}
@@ -434,6 +472,12 @@ panel.hydrateNativeAutomationEditors = function() {
   }
 };
 
+panel.openEditor = function(record) {
+  const open = () => originalOpenEditor.call(this, record);
+  if (!this.hass?.loadFragmentTranslation) return open();
+  return ensureNativeAutomationTranslations(this).then(open);
+};
+
 panel.hydrateEditor = function() {
   originalHydrateEditor.call(this);
   this.hydrateNativeAutomationEditors();
@@ -569,6 +613,7 @@ panel.save = async function() {
 export {
   ConditionalNotificationsPanel,
   constrainNativeAutomationTree,
+  ensureNativeAutomationTranslations,
   mergeNativeTriggers,
   normalizeNativeAutomationLayout,
   simpleCurrentStateCandidate,
