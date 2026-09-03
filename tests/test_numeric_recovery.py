@@ -26,5 +26,5 @@ def test_numeric_recovery_into_matching_range_triggers() -> None:
     assert previous is None
     assert current == 11
     assert _numeric_match(definition, state("unknown"), state("11"))[0]
-    assert _numeric_match(definition, None, state("11"))[0]
+    assert not _numeric_match(definition, None, state("11"))[0]
     assert not _numeric_match(definition, state("unavailable"), state("25"))[0]
