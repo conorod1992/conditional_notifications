@@ -50,6 +50,21 @@ def test_numeric_only_matches_crossing_into_range():
     assert not numeric_matches(20, definition)
 
 
+def test_numeric_matches_recovery_directly_into_range():
+    definition = {"type": "numeric_state", "entity_id": "sensor.example", "above": 10, "below": 20}
+
+    matched, previous, current = _numeric_match(
+        definition, state("unavailable"), state("11")
+    )
+    assert matched
+    assert previous is None
+    assert current == 11
+
+    assert _numeric_match(definition, state("unknown"), state("11"))[0]
+    assert _numeric_match(definition, None, state("11"))[0]
+    assert not _numeric_match(definition, state("unavailable"), state("25"))[0]
+
+
 def test_event_data_is_recursive_safe_subset():
     assert _subset({"device": {"id": 1}}, {"device": {"id": 1, "name": "door"}, "extra": True})
     assert not _subset({"device": {"id": 2}}, {"device": {"id": 1}})
