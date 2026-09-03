@@ -71,7 +71,8 @@ def _numeric_match(
 
     previous, current = number(old), number(new)
     return (
-        numeric_matches(current, definition)
+        old is not None
+        and numeric_matches(current, definition)
         and (previous is None or not numeric_matches(previous, definition)),
         previous,
         current,
