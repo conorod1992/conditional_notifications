@@ -113,7 +113,7 @@ async def async_deliver(
     *,
     test: bool = False,
 ) -> list[dict[str, Any]]:
-    """Deliver independently; one channel failure cannot stop another."""
+    """Deliver independently and concurrently across configured channels."""
     delivery = merge_delivery(defaults, record.definition.get("delivery", {}))
     context, owner_is_admin = await _delivery_identity(hass, record)
     entity_payload = {"title": title, "message": message}
@@ -136,11 +136,9 @@ async def async_deliver(
                     "error": _error_text(err),
                 }
             )
-    for entity_id in delivery.get("notify_entities", []):
+
+    async def deliver_notify_entity(entity_id: str) -> dict[str, Any]:
         try:
-            # Home Assistant's notify.send_message entity service intentionally
-            # exposes only message/title. Extended Companion App data belongs to
-            # legacy notify.mobile_app_* services below.
             await _async_service_call(
                 hass,
                 "notify",
@@ -149,14 +147,12 @@ async def async_deliver(
                 target={"entity_id": entity_id},
                 context=context,
             )
-            results.append({"channel": entity_id, "success": True})
+            return {"channel": entity_id, "success": True}
         except Exception as err:
-            results.append({"channel": entity_id, "success": False, "error": _error_text(err)})
-    for entity_id in delivery.get("assist_satellites", []):
+            return {"channel": entity_id, "success": False, "error": _error_text(err)}
+
+    async def deliver_assist_satellite(entity_id: str) -> dict[str, Any]:
         try:
-            # Assist satellites are an announcement channel rather than notify
-            # entities. Speak the message only; the visual title is intentionally
-            # not repeated aloud.
             await _async_service_call(
                 hass,
                 "assist_satellite",
@@ -165,19 +161,17 @@ async def async_deliver(
                 target={"entity_id": entity_id},
                 context=context,
             )
-            results.append({"channel": entity_id, "success": True})
+            return {"channel": entity_id, "success": True}
         except Exception as err:
-            results.append({"channel": entity_id, "success": False, "error": _error_text(err)})
-    for service in delivery.get("notify_services", []):
+            return {"channel": entity_id, "success": False, "error": _error_text(err)}
+
+    async def deliver_notify_service(service: str) -> dict[str, Any]:
         if context is not None and not owner_is_admin:
-            results.append(
-                {
-                    "channel": service,
-                    "success": False,
-                    "error": "Legacy notify services require an administrator-owned notification",
-                }
-            )
-            continue
+            return {
+                "channel": service,
+                "success": False,
+                "error": "Legacy notify services require an administrator-owned notification",
+            }
         try:
             domain, service_name = service.split(".", 1) if "." in service else ("notify", service)
             if domain != "notify":
@@ -189,9 +183,21 @@ async def async_deliver(
                 service_payload,
                 context=context,
             )
-            results.append({"channel": f"notify.{service_name}", "success": True})
+            return {"channel": f"notify.{service_name}", "success": True}
         except Exception as err:
-            results.append({"channel": service, "success": False, "error": _error_text(err)})
+            return {"channel": service, "success": False, "error": _error_text(err)}
+
+    tasks = [
+        *(deliver_notify_entity(entity_id) for entity_id in delivery.get("notify_entities", [])),
+        *(
+            deliver_assist_satellite(entity_id)
+            for entity_id in delivery.get("assist_satellites", [])
+        ),
+        *(deliver_notify_service(service) for service in delivery.get("notify_services", [])),
+    ]
+    if tasks:
+        results.extend(await asyncio.gather(*tasks))
+
     if not results:
         results.append(
             {"channel": "none", "success": False, "error": "No delivery channel configured"}
