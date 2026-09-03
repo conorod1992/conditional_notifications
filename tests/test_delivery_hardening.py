@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -111,6 +112,68 @@ async def test_legacy_mobile_service_receives_only_bounded_companion_data() -> N
         blocking=True,
     )
     assert result == [{"channel": "notify.mobile_app_phone", "success": True}]
+
+
+@pytest.mark.asyncio
+async def test_delivery_targets_run_concurrently() -> None:
+    started: list[tuple[str, str]] = []
+    all_started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def async_call(domain, service, data, **kwargs):
+        del data, kwargs
+        started.append((domain, service))
+        if len(started) == 3:
+            all_started.set()
+        await release.wait()
+
+    hass = SimpleNamespace(services=SimpleNamespace(async_call=async_call))
+    record = SimpleNamespace(
+        id="record-id",
+        definition={
+            "delivery": {
+                "use_defaults": False,
+                "persistent_notification": False,
+                "notify_entities": ["notify.phone_one", "notify.phone_two"],
+                "notify_services": ["notify.legacy_phone"],
+            }
+        },
+    )
+
+    task = asyncio.create_task(async_deliver(hass, record, "Door", "The door opened", {}))
+    await asyncio.wait_for(all_started.wait(), timeout=1)
+    assert len(started) == 3
+
+    release.set()
+    result = await asyncio.wait_for(task, timeout=1)
+    assert all(item["success"] for item in result)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_delivery_failure_does_not_cancel_siblings() -> None:
+    async def async_call(domain, service, data, **kwargs):
+        del domain, data, kwargs
+        if service == "broken":
+            raise RuntimeError("provider unavailable")
+
+    hass = SimpleNamespace(services=SimpleNamespace(async_call=async_call))
+    record = SimpleNamespace(
+        id="record-id",
+        definition={
+            "delivery": {
+                "use_defaults": False,
+                "persistent_notification": False,
+                "notify_entities": [],
+                "notify_services": ["notify.good", "notify.broken"],
+            }
+        },
+    )
+
+    result = await async_deliver(hass, record, "Door", "The door opened", {})
+    by_channel = {item["channel"]: item for item in result}
+    assert by_channel["notify.good"]["success"] is True
+    assert by_channel["notify.broken"]["success"] is False
+    assert "provider unavailable" in by_channel["notify.broken"]["error"]
 
 
 @pytest.mark.parametrize(
