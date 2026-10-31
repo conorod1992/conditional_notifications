@@ -107,7 +107,7 @@ def test_simple_native_state_projects_for_current_state_lifecycle() -> None:
         "entity_id": "binary_sensor.door",
         "from": "off",
         "to": "on",
-        "for": {"minutes": 2},
+        "for": 120,
     }
     assert legacy_trigger_view({"trigger": "time", "at": "08:00:00"}) is None
 

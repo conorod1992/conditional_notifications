@@ -1,6 +1,2 @@
 homeassistant==2026.7.3
-pytest==8.4.1
-pytest-asyncio==1.1.0
-pytest-cov==6.2.1
-ruff==0.12.7
-mypy==1.17.1
+-r requirements_test_tools.txt

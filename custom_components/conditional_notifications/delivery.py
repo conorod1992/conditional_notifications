@@ -8,27 +8,39 @@ from typing import Any
 
 from homeassistant.components import persistent_notification
 from homeassistant.core import Context, HomeAssistant
-from homeassistant.helpers.template import Template
+from homeassistant.helpers.template import Template, TemplateError
+from homeassistant.util import dt as dt_util
+from jinja2 import StrictUndefined
+from jinja2 import TemplateError as JinjaTemplateError
+from jinja2.sandbox import ImmutableSandboxedEnvironment
 
 from .const import DOMAIN
 from .models import NotificationRecord, parse_datetime
 
 DELIVERY_TIMEOUT_SECONDS = 30
+_RESTRICTED_TEMPLATES = ImmutableSandboxedEnvironment(undefined=StrictUndefined)
+_RESTRICTED_TEMPLATES.globals.update(now=dt_util.now, utcnow=dt_util.utcnow)
 
 
 async def async_render(
     hass: HomeAssistant, source: str, trigger: dict[str, Any], record: NotificationRecord
 ) -> str:
-    template = Template(source, hass)
     friendly_trigger = dict(trigger)
     if isinstance(friendly_trigger.get("timestamp"), str):
         friendly_trigger["timestamp"] = parse_datetime(friendly_trigger["timestamp"])
-    return str(
-        template.async_render(
-            {"trigger": friendly_trigger, "notification": record.public_dict()},
-            parse_result=False,
-        )
-    )
+    variables = {"trigger": friendly_trigger, "notification": record.public_dict()}
+    owner_id = getattr(record, "owner_id", None)
+    if owner_id is not None:
+        user = await hass.auth.async_get_user(owner_id)
+        if user is None or not getattr(user, "is_active", True):
+            raise TemplateError("Notification owner is no longer active")
+        if not user.is_admin:
+            # No HA globals, state functions, registries, or service access.
+            try:
+                return _RESTRICTED_TEMPLATES.from_string(source).render(variables)
+            except JinjaTemplateError as err:
+                raise TemplateError(err) from err
+    return str(Template(source, hass).async_render(variables, parse_result=False))
 
 
 def merge_delivery(defaults: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -57,6 +69,7 @@ def _notify_payload(title: str, message: str, delivery: dict[str, Any]) -> dict[
     data: dict[str, Any] = {}
     if url := companion.get("url"):
         data["url"] = url
+        data["clickAction"] = url
     if actions := companion.get("actions"):
         data["actions"] = [
             {"action": "URI", "title": item["title"], "uri": item["uri"]}
@@ -201,6 +214,15 @@ async def async_deliver(
     if not results:
         results.append(
             {"channel": "none", "success": False, "error": "No delivery channel configured"}
+        )
+    if delivery.get("companion") and not delivery.get("notify_services"):
+        results.append(
+            {
+                "channel": "companion_options",
+                "success": False,
+                "error": "Links and buttons require a compatible legacy mobile_app service target; "
+                "notify entities receive title and message only",
+            }
         )
     return results
 

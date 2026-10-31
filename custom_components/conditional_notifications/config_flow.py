@@ -14,6 +14,8 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectSelector,
+    SelectSelectorConfig,
 )
 
 from .const import DEFAULT_OPTIONS, DOMAIN, NAME
@@ -49,6 +51,7 @@ class ConditionalNotificationsOptionsFlow(config_entries.OptionsFlow):
             delivery["persistent_notification"] = user_input.pop("persistent_notification")
             delivery["notify_entities"] = user_input.pop("notify_entities", [])
             delivery["assist_satellites"] = user_input.pop("assist_satellites", [])
+            delivery["notify_services"] = user_input.pop("notify_services", [])
             return self.async_create_entry(
                 title="", data={**options, **user_input, "delivery": delivery}
             )
@@ -63,6 +66,26 @@ class ConditionalNotificationsOptionsFlow(config_entries.OptionsFlow):
                     "notify_entities",
                     default=options["delivery"].get("notify_entities", []),
                 ): EntitySelector(EntitySelectorConfig(domain="notify", multiple=True)),
+                vol.Optional(
+                    "notify_services", default=options["delivery"].get("notify_services", [])
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=sorted(
+                            {
+                                *(
+                                    f"notify.{name}"
+                                    for name in self.hass.services.async_services().get(
+                                        "notify", {}
+                                    )
+                                    if name.startswith("mobile_app_")
+                                ),
+                                *options["delivery"].get("notify_services", []),
+                            }
+                        ),
+                        multiple=True,
+                        custom_value=False,
+                    )
+                ),
                 vol.Optional(
                     "assist_satellites",
                     default=options["delivery"].get("assist_satellites", []),

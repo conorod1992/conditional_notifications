@@ -228,7 +228,9 @@ class LifecycleNotificationManager(NotificationManager):
         if context is None:
             return
 
-        definition = record.definition.get("resolve_when", {})
+        definition = self._resolution_duration_definition(record)
+        if definition is None:
+            return
         seconds = duration_seconds(definition.get("for"))
         if not seconds:
             await self._async_resolve(record.id, record.revision, context)
@@ -239,6 +241,11 @@ class LifecycleNotificationManager(NotificationManager):
             return
 
         resolution_index = len(record.definition["triggers"])
+        runtime.guard_duration(
+            resolution_index,
+            definition["entity_id"],
+            lambda state: self._resolution_context_for_state(record, definition, state) is not None,
+        )
 
         def duration_done(
             record_id: str = record.id,
@@ -252,6 +259,9 @@ class LifecycleNotificationManager(NotificationManager):
         # resolution condition was already true, begin proving the duration
         # from now rather than assuming time before this point was continuous.
         runtime.schedule_duration(resolution_index, seconds, duration_done)
+
+    def _resolution_duration_definition(self, record: NotificationRecord) -> dict[str, Any] | None:
+        return record.definition.get("resolve_when", {})
 
     async def _async_resolve_after_duration(self, record_id: str, revision: int) -> None:
         """Resolve only if the condition still matches after the full duration."""

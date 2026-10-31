@@ -10,9 +10,9 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 
-from .lifecycle import LifecycleNotificationManager
 from .manager import AmbiguousReference, DefinitionError, NotFound, RevisionConflict
 from .models import NotificationRecord
+from .native_manager import LifecycleNotificationManager
 from .security import require_mutation_access
 
 WS_TYPE = "conditional_notifications"
@@ -212,7 +212,44 @@ async def ws_history(
 async def ws_preferences(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    connection.send_result(msg["id"], _manager(hass).options)
+    connection.send_result(
+        msg["id"], {**_manager(hass).options, "time_zone": hass.config.time_zone}
+    )
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{WS_TYPE}/quarantine"})
+@websocket_api.async_response
+async def ws_quarantine(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    connection.send_result(
+        msg["id"], _manager(hass).quarantined_for_user(connection.user.id, connection.user.is_admin)
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{WS_TYPE}/recover",
+        vol.Required("notification_id"): cv.string,
+        vol.Required("definition"): dict,
+    }
+)
+@websocket_api.async_response
+async def ws_recover(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    try:
+        connection.send_result(
+            msg["id"],
+            await _manager(hass).async_recover(
+                msg["notification_id"],
+                msg["definition"],
+                connection.user.id,
+                connection.user.is_admin,
+            ),
+        )
+    except Exception as err:
+        _send_error(connection, msg["id"], err)
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{WS_TYPE}/subscribe"})
@@ -259,6 +296,8 @@ def async_register_websocket(hass: HomeAssistant) -> None:
         ws_action,
         ws_history,
         ws_preferences,
+        ws_quarantine,
+        ws_recover,
         ws_subscribe,
     ):
         websocket_api.async_register_command(hass, command)

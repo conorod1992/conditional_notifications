@@ -4,7 +4,19 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "lint": "node --check ../custom_components/conditional_notifications/frontend/conditional-notifications-panel.js && node --check ../custom_components/conditional_notifications/frontend/conditional-notifications-panel-status.js && node --check ../custom_components/conditional_notifications/frontend/conditional-notifications-panel-correlation.js && node --check ../custom_components/conditional_notifications/frontend/conditional-notifications-panel-lifecycle.js && node --check ../custom_components/conditional_notifications/frontend/conditional-notifications-panel-entry.js && node --check ../custom_components/conditional_notifications/frontend/conditional-notifications-panel-native-automation.js && node --check ../custom_components/conditional_notifications/frontend/conditional-notifications-panel-editor-ux.js && node --check ../custom_components/conditional_notifications/frontend/conditional-notifications-panel-performance.js",
-    "test": "node --test tests/*.test.mjs"
+    "lint": "node scripts/lint.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "test:browser": "playwright test",
+    "format": "prettier --write ../custom_components/conditional_notifications/frontend/*.js tests/*.mjs browser/* scripts/*.mjs *.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.64.1",
+    "eslint": "10.14.0",
+    "globals": "17.13.0",
+    "prettier": "3.9.10"
+  },
+  "overrides": {
+    "minimatch": "^11.0.1"
   }
 }

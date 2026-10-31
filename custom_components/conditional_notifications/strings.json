@@ -7,7 +7,9 @@
         "description": "Create event-driven notifications without disposable automations."
       }
     },
-    "abort": {"already_configured": "Conditional Notifications is already configured."}
+    "abort": {
+      "already_configured": "Conditional Notifications is already configured."
+    }
   },
   "options": {
     "step": {
@@ -20,15 +22,23 @@
           "assist_satellites": "Default voice satellites",
           "history_retention_days": "History retention (days)",
           "history_max_records": "Maximum history records",
-          "retain_content": "Retain rendered notification content in history"
+          "retain_content": "Retain rendered notification content in history",
+          "notify_services": "Default Companion App service targets"
         },
         "data_description": {
           "persistent_notification": "Create a notification in Home Assistant's notification panel unless a watch overrides the defaults.",
           "notify_entities": "Notify entities such as Companion App phones used unless a watch selects custom delivery.",
-          "assist_satellites": "Assist satellites that should speak the notification message by default."
+          "assist_satellites": "Assist satellites that should speak the notification message by default.",
+          "notify_services": "Administrator-owned watches can use mobile_app services for notification tap links and buttons. Notify entities send title and message only."
         }
       }
     }
   },
-  "entity": {"sensor": {"conditional_notifications_summary": {"name": "Active"}}}
+  "entity": {
+    "sensor": {
+      "conditional_notifications_summary": {
+        "name": "Active"
+      }
+    }
+  }
 }

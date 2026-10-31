@@ -228,6 +228,14 @@ expiry_message: No kitchen motion was detected before 10:00.
 
 A “no event” notification is sent only if no qualifying occurrence was accepted before the watch expired.
 
+## Native Home Assistant configuration
+
+The panel embeds Home Assistant's trigger and condition editors. Existing `type:` definitions continue to work; editing a legacy fragment through the native editor converts only that fragment. Native definitions use `trigger:` and `condition:`. Native trigger groups count as one correlation slot and use OR semantics within that slot.
+
+Administrators can use Home Assistant's available native trigger and condition types. Non-admin owners are limited to observers that can be checked against their entity/event read permissions. Native observer templates, including trigger variables and templated durations, require an administrator. Registry UUID references are resolved before checking permissions.
+
+See [Native automation configuration](docs/NATIVE_AUTOMATION.md) for stored shapes and the permission boundary. This remains a notification integration: it does not execute arbitrary action sequences, reminders, or deferred actions.
+
 ## Trigger types
 
 ### State
@@ -308,7 +316,7 @@ For example:
 
 The front-door state change is the trigger. Your presence state is the condition.
 
-Conditional Notifications intentionally supports a defined set of conditions rather than arbitrary Home Assistant action sequences or unrestricted templates.
+Legacy definitions support the bounded conditions listed here. Native Home Assistant conditions follow the administrator and entity-permission rules described above. Neither format executes arbitrary action sequences.
 
 ## Repeating notifications
 
@@ -326,7 +334,7 @@ Continue watching and allow future qualifying occurrences.
 
 Allow a fixed number of accepted notifications, then stop.
 
-The remaining count is saved and survives a Home Assistant restart.
+The remaining count is saved and survives a Home Assistant restart. If template rendering fails or every delivery channel fails, that attempt does not consume the repeat count. A qualifying trigger still counts as having happened for no-event expiry handling, so a provider failure does not turn into a misleading “nothing happened” alert.
 
 ## Timing controls
 
@@ -394,13 +402,15 @@ New notifications default to **Use my notification defaults**, so you do not nee
 
 Individual notifications can instead choose their own delivery targets.
 
-Modern Home Assistant `notify` entities are supported using `notify.send_message`. Previously stored legacy `notify.*` service names remain supported for compatibility.
+Modern Home Assistant `notify` entities are supported using `notify.send_message` for title and message delivery. Administrator-owned watches can also select Companion App `notify.mobile_app_*` service targets in custom delivery or integration defaults. Existing legacy `notify.*` targets remain supported.
+
+Assist satellite entities can be selected for voice announcements. They receive the message through `assist_satellite.announce`; the title is not spoken.
 
 If more than one delivery channel is configured, failure of one channel does not prevent the others from being attempted.
 
 ### Companion App options
 
-For Home Assistant Companion App notify targets, an individual conditional notification can optionally add:
+For compatible Companion App **service targets**, an individual conditional notification can optionally add:
 
 - a destination to open when the notification itself is tapped;
 - up to three action buttons;
@@ -410,7 +420,9 @@ Home Assistant-relative destinations must begin with a single `/`, such as `/lov
 
 These options are deliberately bounded. Conditional Notifications does **not** expose an arbitrary Companion App `data` object, arbitrary service calls, command URIs, or unrestricted notification payload fields.
 
-If a Companion-specific payload is sent to a notify target which does not support it, that target may report a delivery failure; other configured delivery channels are still attempted independently.
+Notify entities send title and message only, so they do not receive Companion tap links or buttons. The panel explains this distinction and lets administrators select compatible service targets. Configuring extras without a service target produces an explicit compatibility result instead of silently dropping them. Android and iOS tap destinations are populated together.
+
+If a service target does not support Companion options, that channel may report a delivery failure; other configured channels are still attempted independently.
 
 ### Test delivery
 
@@ -492,6 +504,8 @@ Common fields include:
 For a completed `all_within` correlation, the trigger object also contains `matched_triggers` with the individual trigger contexts and `correlation` with the configured window and first/last match times.
 
 A `notification` object is also available with the notification's current structured status.
+
+For non-admin owners, templates run in a sandbox containing `trigger` and `notification`, standard Jinja filters, safe `now()`/`utcnow()` time helpers, and no Home Assistant state/registry globals. For example, use `{{ trigger.timestamp.strftime('%H:%M') }}` for the occurrence time. Calls such as `states()` and `state_attr()` are available only to administrator-owned or internal system-owned watches. Rendering rechecks the current owner identity, including after permission changes.
 
 Template syntax is checked when the notification is saved. If rendering later fails for a particular occurrence, the failure is recorded without stopping the rest of the integration.
 
@@ -586,7 +600,7 @@ History may include events such as:
 - expiry;
 - no-event notification delivery.
 
-History is automatically bounded by both age and a maximum record count.
+History is automatically bounded by both age and a maximum record count. Age retention is also checked hourly while idle. The panel initially shows 200 matching records and offers **Load more history** to access the rest of the retained results.
 
 The optional `sensor.conditional_notifications_active` entity contains only small summary information. Conditional notification definitions are not stored in that entity's attributes or written into Recorder rows.
 
@@ -595,6 +609,8 @@ The optional `sensor.conditional_notifications_active` entity contains only smal
 Conditional Notifications uses Home Assistant's authenticated user identity.
 
 Normal users can see and manage only their own conditional notifications. Home Assistant administrators may manage all records.
+
+Observation permissions are checked again before accepting triggers, resolutions, and tests. If the owner loses access, the watch stops with an error before recording the new event. Restore the required permissions and re-enable the watch to resume observation.
 
 Browser and LLM requests use the authenticated Home Assistant user; they cannot simply provide a different owner ID.
 
@@ -643,6 +659,14 @@ and make sure the panel is enabled.
 
 Reload the integration if necessary.
 
+### A notification disappeared after reload
+
+The panel shows a **notifications need repair** notice for quarantined records visible to your account. Select **Inspect and repair**, correct the definition, and save. A successful repair preserves the watch ID and original owner and begins a fresh observation cycle. Validation failures leave the original quarantined record intact. Diagnostics include the quarantine count without including definitions or notification content.
+
+Malformed trigger or condition entries remain visible as incomplete fields that require correction. They are not silently removed during repair. The editor holds its submitted values while a save is pending.
+
+Dates in the editor use the browser timezone. Recurring hours use Home Assistant's configured timezone; the editor displays both timezone names.
+
 ### A template failed
 
 Test the template in **Developer Tools → Template** and use the supported `trigger` fields documented above.
@@ -653,9 +677,9 @@ The following details are mainly relevant to developers, contributors, or anyone
 
 Conditional Notifications stores its records in Home Assistant's versioned storage. Runtime listeners and timers are reconstructed when the config entry is loaded.
 
-Each notification record has its own lock and revision number. Editing or deleting a record invalidates its previous listeners and pending duration callback.
+Each notification record has its own lock and revision number. Runtime cancellation also invalidates late attachment results and immediately removes late subscriptions. Editing or deleting a record invalidates its previous listeners and pending duration callback.
 
-An accepted occurrence and its count are saved before notification providers are called. This prevents a provider failure or crash from causing an uncontrolled retry loop.
+An occurrence reservation and its count are saved before notification providers are called. A completed all-channel or template failure rolls back the repeat count. There is no automatic provider retry loop; a crash after reservation retains conservative durable progress.
 
 Concurrent callbacks re-check the current record revision and status before accepting an occurrence.
 
@@ -670,12 +694,19 @@ ruff check .
 mypy custom_components/conditional_notifications
 pytest
 cd frontend
+npm ci
+npx playwright install chromium
 npm run lint
 npm test
+npm run test:browser
 npm run build
 ```
 
-CI also runs HACS and hassfest validation.
+CI runs backend tests against Home Assistant 2026.6.0, 2026.7.3, and 2026.10.4, plus browser regressions, ESLint, HACS, and hassfest validation. Update the current-version matrix entry when adopting a newer HA release.
+
+The browser fixture exercises the actual panel modules and DOM events with a small HA connection/selector contract fixture; it does not require a live Home Assistant instance. Backend native-runtime regressions use Home Assistant's real trigger, condition, entity registry, and template helpers.
+
+Frontend features use explicit class inheritance; only the final composed panel registers the custom element. Loading, refresh, and live subscription each have one implementation. Stable data attributes identify editor sections instead of translated heading text.
 
 The committed frontend panel is a dependency-free ES module and the build is expected to be idempotent; CI fails if rebuilding changes the committed output.
 

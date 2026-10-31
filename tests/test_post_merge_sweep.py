@@ -175,9 +175,10 @@ def test_numeric_duration_already_true_starts_fresh_restart_proof():
     accepted = []
     scheduled = {}
     runtime = SimpleNamespace(
+        guard_duration=lambda *args: None,
         schedule_duration=lambda index, seconds, action: scheduled.update(
             index=index, seconds=seconds, action=action
-        )
+        ),
     )
     state = State("sensor.temperature", "12", {"friendly_name": "Temperature"})
     manager = bare_manager()

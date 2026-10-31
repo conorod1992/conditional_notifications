@@ -158,9 +158,10 @@ def test_seed_current_for_starts_fresh_duration_proof():
     accepted = []
     scheduled = {}
     runtime = SimpleNamespace(
+        guard_duration=lambda *args: None,
         schedule_duration=lambda index, seconds, action: scheduled.update(
             index=index, seconds=seconds, action=action
-        )
+        ),
     )
     state = State("binary_sensor.motion", "on", {"friendly_name": "Motion"})
     manager = object.__new__(NotificationManager)

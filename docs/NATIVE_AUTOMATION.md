@@ -23,3 +23,14 @@ Existing legacy Conditional Notifications definitions remain supported and are n
 ## Permissions
 
 Administrator-owned definitions may use Home Assistant's full trigger and condition set. For non-admin owners, Conditional Notifications only permits native definitions with a clear Home Assistant read-permission boundary (for example state/numeric/zone/time/sun and safe event subscriptions). Trigger/condition types such as templates, MQTT, device automation, webhooks, and other generic integration-defined observers require administrator access rather than bypassing Home Assistant's entity/event permission model.
+
+
+## Duration and rebuild behavior
+
+Static native `for` values, including strings such as `00:05:00`, are normalized for conservative current-state proofs. Dynamic durations remain owned by HA and are never guessed by the integration. Seeded trigger and resolution proofs are cancelled whenever their truth is interrupted. Disabled native fragments are excluded from current-state projection; an entirely disabled group is a valid inactive subscription.
+
+Legacy zone transitions and current-state zone resolution require known location data. Losing location, becoming unavailable, or losing the zone does not prove that an entity left it.
+
+Every runtime owns its subscriptions and proof timers. Cancelling it immediately invalidates callbacks; attachment results arriving after cancellation are unsubscribed immediately. A later build cannot inherit orphaned listeners from an earlier build.
+
+Native observer templates are administrator-only throughout each fragment, including nested groups, condition trees, trigger variables, and durations. Entity registry UUIDs are resolved before entity read permissions are checked. Notification title/message templates for non-admin owners use only trigger/notification data and standard Jinja, without HA globals.

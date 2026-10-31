@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" /><title>
+    Conditional Notifications browser regressions
+  </title>
+  <style>
+    body {
+      margin: 0;
+      --primary-color: #0288d1;
+      --primary-text-color: #222;
+      --primary-background-color: #fafafa;
+      --card-background-color: white;
+      --secondary-text-color: #555;
+      --secondary-background-color: #eee;
+      --divider-color: #ddd;
+    }
+  </style>
+  <script type="module">
+    class Selector extends HTMLElement {
+      connectedCallback() {
+        this.style.display = "block";
+        this.style.minHeight = "44px";
+        this.tabIndex = 0;
+      }
+    }
+    customElements.define("ha-selector", Selector);
+    customElements.define("ha-entity-picker", class extends Selector {});
+    await import("/assets/conditional-notifications-panel-performance.js");
+    window.boot = ({
+      records = [],
+      history = [],
+      quarantined = [],
+      admin = true,
+    } = {}) => {
+      window.calls = [];
+      const panel = document.createElement("conditional-notifications-panel");
+      window.panel = panel;
+      const defaults = {
+        persistent_notification: true,
+        notify_entities: [],
+        notify_services: [],
+        assist_satellites: [],
+      };
+      const connection = {
+        addEventListener() {},
+        removeEventListener() {},
+        subscribeMessage: async () => () => {},
+      };
+      panel.hass = {
+        user: { id: "user", is_admin: admin },
+        connection,
+        states: {},
+        config: { time_zone: "Europe/Dublin" },
+        services: { notify: { mobile_app_phone: {} } },
+        callWS: async (request) => {
+          window.calls.push(structuredClone(request));
+          if (request.type.endsWith("/list")) return records;
+          if (request.type.endsWith("/history")) {
+            if (window.delayHistory)
+              await new Promise((resolve) => {
+                window.releaseHistory = resolve;
+              });
+            return history;
+          }
+          if (request.type.endsWith("/preferences"))
+            return { delivery: defaults, time_zone: "Europe/Dublin" };
+          if (request.type.endsWith("/quarantine")) return quarantined;
+          if (window.rejectSave && /\/(create|update)$/.test(request.type))
+            throw {
+              code: "invalid_definition",
+              message: "triggers.0.for: Invalid duration",
+            };
+          if (
+            window.delaySave &&
+            /\/(create|update|recover)$/.test(request.type)
+          )
+            await new Promise((resolve) => {
+              window.releaseSave = resolve;
+            });
+          if (request.type.endsWith("/recover")) quarantined = [];
+          return {
+            id: "saved",
+            delivery: [{ channel: "test", success: true }],
+          };
+        },
+      };
+      document.body.replaceChildren(panel);
+      return true;
+    };
+  </script>
+</html>

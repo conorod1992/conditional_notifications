@@ -40,6 +40,9 @@ class FakeHass:
 
 
 class FakeRuntime:
+    def guard_duration(self, *args) -> None:
+        pass
+
     def __init__(self, revision: int) -> None:
         self.revision = revision
         self.scheduled = None
