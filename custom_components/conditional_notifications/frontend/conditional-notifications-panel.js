@@ -128,15 +128,44 @@ class ConditionalNotificationsPanel extends HTMLElement {
     if (!stored || typeof stored !== "object" || Array.isArray(stored))
       return defaults;
     const definition = { ...defaults, ...structuredClone(stored) };
-    if (!Array.isArray(definition.conditions)) definition.conditions = [];
+    const object = (value) =>
+      value && typeof value === "object" && !Array.isArray(value);
+    const missingCondition = () => ({
+      type: "state",
+      entity_id: "",
+      state: "",
+    });
+    if (!Array.isArray(definition.conditions))
+      definition.conditions = [missingCondition()];
+    definition.conditions = definition.conditions.map((value) =>
+      object(value) &&
+      (typeof value.condition === "string" ||
+        ["state", "numeric_state", "zone", "time"].includes(value.type))
+        ? value
+        : missingCondition(),
+    );
     if (!Array.isArray(definition.triggers) || !definition.triggers.length)
       definition.triggers = defaults.triggers;
-    definition.triggers = definition.triggers.filter(
-      (value) => value && typeof value === "object",
+    definition.triggers = definition.triggers.map((value) =>
+      object(value) ? value : { type: "state", entity_id: "", to: "" },
     );
     if (!definition.triggers.length) definition.triggers = defaults.triggers;
-    if (!definition.delivery || typeof definition.delivery !== "object")
-      definition.delivery = defaults.delivery;
+    if (!object(definition.delivery))
+      definition.delivery = { use_defaults: false };
+    for (const field of ["name", "title", "message"]) {
+      if (typeof definition[field] !== "string") definition[field] = "";
+    }
+    if (definition.active_window) {
+      const window = object(definition.active_window)
+        ? definition.active_window
+        : {};
+      definition.active_window = {
+        ...window,
+        start: typeof window.start === "string" ? window.start : "",
+        end: typeof window.end === "string" ? window.end : "",
+        weekdays: Array.isArray(window.weekdays) ? window.weekdays : [],
+      };
+    }
     return definition;
   }
   openEditor(record) {

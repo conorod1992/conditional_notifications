@@ -27,7 +27,9 @@ Administrator-owned definitions may use Home Assistant's full trigger and condit
 
 ## Duration and rebuild behavior
 
-Static native `for` values, including strings such as `00:05:00`, are normalized for conservative current-state proofs. Dynamic durations remain owned by HA and are never guessed by the integration. Seeded trigger and resolution proofs are cancelled whenever their truth is interrupted. Disabled native fragments are excluded from current-state projection.
+Static native `for` values, including strings such as `00:05:00`, are normalized for conservative current-state proofs. Dynamic durations remain owned by HA and are never guessed by the integration. Seeded trigger and resolution proofs are cancelled whenever their truth is interrupted. Disabled native fragments are excluded from current-state projection; an entirely disabled group is a valid inactive subscription.
+
+Legacy zone transitions and current-state zone resolution require known location data. Losing location, becoming unavailable, or losing the zone does not prove that an entity left it.
 
 Every runtime owns its subscriptions and proof timers. Cancelling it immediately invalidates callbacks; attachment results arriving after cancellation are unsubscribed immediately. A later build cannot inherit orphaned listeners from an earlier build.
 

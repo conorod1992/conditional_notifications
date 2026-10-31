@@ -708,12 +708,21 @@ class NotificationManager:
         definition = record.definition.get("resolve_when")
         if not definition or not record.active_occurrence:
             return None
-        kind = definition["type"]
+        if definition.get("type") not in {"state", "numeric_state", "zone"}:
+            return None
+        return self._resolution_context_for_state(
+            record, definition, self.hass.states.get(definition.get("entity_id"))
+        )
+
+    def _resolution_context_for_state(
+        self, record: NotificationRecord, definition: dict[str, Any], current: Any
+    ) -> dict[str, Any] | None:
+        """Evaluate the supplied snapshot, including intermediate queued states."""
+        kind = definition.get("type")
         if kind not in {"state", "numeric_state", "zone"}:
             return None
         entity_id = definition["entity_id"]
-        current = self.hass.states.get(entity_id)
-        if current is None:
+        if not record.active_occurrence or current is None or is_unknown_state(current.state):
             return None
         matched = False
         actual: Any = None
@@ -734,6 +743,8 @@ class NotificationManager:
                 actual = None
             matched = numeric_matches(actual, definition)
         else:
+            if self.hass.states.get(definition["zone_entity_id"]) is None:
+                return None
             try:
                 inside = zone_matches(
                     self.hass,

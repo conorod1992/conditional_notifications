@@ -610,6 +610,8 @@ Conditional Notifications uses Home Assistant's authenticated user identity.
 
 Normal users can see and manage only their own conditional notifications. Home Assistant administrators may manage all records.
 
+Observation permissions are checked again before accepting triggers, resolutions, and tests. If the owner loses access, the watch stops with an error before recording the new event. Restore the required permissions and re-enable the watch to resume observation.
+
 Browser and LLM requests use the authenticated Home Assistant user; they cannot simply provide a different owner ID.
 
 Actions called internally without a Home Assistant user context create shared/system-owned records.
@@ -660,6 +662,8 @@ Reload the integration if necessary.
 ### A notification disappeared after reload
 
 The panel shows a **notifications need repair** notice for quarantined records visible to your account. Select **Inspect and repair**, correct the definition, and save. A successful repair preserves the watch ID and original owner and begins a fresh observation cycle. Validation failures leave the original quarantined record intact. Diagnostics include the quarantine count without including definitions or notification content.
+
+Malformed trigger or condition entries remain visible as incomplete fields that require correction. They are not silently removed during repair. The editor holds its submitted values while a save is pending.
 
 Dates in the editor use the browser timezone. Recurring hours use Home Assistant's configured timezone; the editor displays both timezone names.
 

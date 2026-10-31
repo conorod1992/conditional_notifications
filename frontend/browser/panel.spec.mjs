@@ -271,3 +271,110 @@ test("delivery UI exposes compatible services and labels both timezones", async 
   );
   await expect(page.locator(".timezone-note")).toContainText("Europe/Dublin");
 });
+
+test("keyboard Details loads the retained history", async ({ page }) => {
+  await boot(page, {
+    records: [record()],
+    history: [
+      {
+        id: "history",
+        notification_id: "one",
+        event: "matched",
+        summary: "Known historical alert",
+        timestamp: "2026-10-01T00:00:00Z",
+      },
+    ],
+  });
+  await page.locator(".card").focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".detail-dialog")).toContainText(
+    "Known historical alert",
+  );
+});
+
+test("history arriving asynchronously keeps focus inside Details", async ({
+  page,
+}) => {
+  await boot(page, {
+    records: [record()],
+    history: [
+      {
+        id: "history",
+        notification_id: "one",
+        event: "matched",
+        summary: "Known historical alert",
+        timestamp: "2026-10-01T00:00:00Z",
+      },
+    ],
+  });
+  await page.evaluate(() => {
+    window.delayHistory = true;
+  });
+  await page.locator('[data-details="one"]').click();
+  await expect(page.locator("#close-details")).toBeFocused();
+  await page.evaluate(() => window.releaseHistory());
+  await expect(page.locator(".detail-dialog")).toContainText(
+    "Known historical alert",
+  );
+  await expect(page.locator("#close-details")).toBeFocused();
+});
+
+test("a pending save cannot discard edits made after submitting", async ({
+  page,
+}) => {
+  await boot(page, { records: [record()] });
+  await page.locator('[data-edit="one"]').click();
+  await page.evaluate(() => {
+    window.delaySave = true;
+  });
+  await page.locator("#save-editor").click();
+  await expect(page.locator(".dialog")).toHaveAttribute("aria-busy", "true");
+  await expect(
+    page.locator('[data-path="title"]').click({ timeout: 300 }),
+  ).rejects.toThrow();
+  await page.keyboard.type("Would be lost");
+  await expect(page.locator('[data-path="title"]')).toHaveValue("Door");
+  await emit(page, "native-ha-triggers", [
+    { trigger: "event", event_type: "late_change" },
+  ]);
+  expect(
+    await page.evaluate(
+      () => window.panel.editor.definition.triggers[0].trigger,
+    ),
+  ).toBe("state");
+  await page.evaluate(() => window.releaseSave());
+  await expect(page.locator(".dialog")).toHaveCount(0);
+  expect(
+    await page.evaluate(
+      () => window.calls.find((c) => c.type.endsWith("/update")).changes.title,
+    ),
+  ).toBe("Door");
+});
+
+test("repairing a malformed condition cannot crash or silently remove the guard", async ({
+  page,
+}) => {
+  await boot(page, {
+    quarantined: [
+      {
+        id: "broken",
+        name: "Broken watch",
+        reason: "Stored record needs repair",
+        definition: definition({ conditions: [null] }),
+      },
+    ],
+  });
+  await page.getByText("1 notification(s) need repair").click();
+  await page.getByRole("button", { name: "Inspect and repair" }).click();
+  await expect(page.locator("#save-editor")).toBeVisible();
+  expect(
+    await page.evaluate(() => window.panel.editor.definition.conditions.length),
+  ).toBe(1);
+  await page.locator("#save-editor").click();
+  await expect(page.locator(".editor-error-summary")).toContainText("Only if");
+  expect(
+    await page.evaluate(() =>
+      window.calls.some((c) => c.type.endsWith("/recover")),
+    ),
+  ).toBe(false);
+});

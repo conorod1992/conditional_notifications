@@ -508,7 +508,25 @@ class ConditionalNotificationsPanel extends BasePanel {
   setEditorSavingState(saving) {
     const dialog = this.shadowRoot?.querySelector(".dialog");
     if (!dialog) return;
-    dialog.toggleAttribute("aria-busy", saving);
+    dialog.setAttribute("aria-busy", String(saving));
+    const body = dialog.querySelector(".editor-body");
+    if (body) {
+      body.inert = saving;
+      if (!body.dataset.saveGuardBound) {
+        body.dataset.saveGuardBound = "true";
+        for (const type of ["input", "change", "value-changed", "click"]) {
+          body.addEventListener(
+            type,
+            (event) => {
+              if (!body.inert) return;
+              event.preventDefault();
+              event.stopImmediatePropagation();
+            },
+            { capture: true },
+          );
+        }
+      }
+    }
     for (const selector of [
       "#save-editor",
       "#cancel-editor",

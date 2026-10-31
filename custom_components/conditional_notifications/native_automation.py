@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 from collections.abc import Mapping
@@ -249,6 +250,49 @@ def normalize_native_trigger_context(
     return trigger
 
 
+async def _async_initialize_native(
+    runtime: Any, validated: list[dict[str, Any]], action: Any, name: str, path: str
+) -> None:
+    """Finish an attachment batch safely even if its caller is cancelled."""
+    failed = False
+
+    def log_callback(level: int, message: str, **kwargs: Any) -> None:
+        nonlocal failed
+        failed |= level >= logging.ERROR
+        _LOGGER.log(level, "%s: %s", name, message, **kwargs)
+
+    task = runtime.hass.async_create_task(
+        trigger_helper.async_initialize_triggers(
+            runtime.hass, validated, action, DOMAIN, name, log_callback
+        ),
+        eager_start=True,
+    )
+    try:
+        remove = await asyncio.shield(task)
+    except asyncio.CancelledError:
+        runtime.cancel()
+
+        def dispose_late_result(completed: asyncio.Task[Any]) -> None:
+            if completed.cancelled():
+                return
+            try:
+                remove = completed.result()
+            except Exception:
+                _LOGGER.exception("Native trigger attachment failed during cancellation")
+            else:
+                if remove is not None:
+                    runtime.add(remove)
+
+        task.add_done_callback(dispose_late_result)
+        raise
+    if remove is None:
+        # HA deliberately returns None when every validated fragment is disabled.
+        if failed:
+            raise DefinitionError(path, "Home Assistant did not attach the trigger")
+        return
+    runtime.add(remove)
+
+
 async def async_attach_native_trigger(
     runtime: Any,
     definition: dict[str, Any],
@@ -257,6 +301,8 @@ async def async_attach_native_trigger(
     name: str,
 ) -> None:
     """Attach one native HA trigger/group to a Conditional Notifications slot."""
+    if definition.get("enabled") is False:
+        return
     hass: HomeAssistant = runtime.hass
     validated = await async_prepare_native_trigger(hass, definition, f"triggers.{index}")
 
@@ -264,20 +310,7 @@ async def async_attach_native_trigger(
         del context
         accepted(normalize_native_trigger_context(hass, run_variables, index))
 
-    def log_callback(level: int, message: str, **kwargs: Any) -> None:
-        _LOGGER.log(level, "%s: %s", name, message, **kwargs)
-
-    remove = await trigger_helper.async_initialize_triggers(
-        hass,
-        validated,
-        action,
-        DOMAIN,
-        name,
-        log_callback,
-    )
-    if remove is None:
-        raise DefinitionError(f"triggers.{index}", "Home Assistant did not attach the trigger")
-    runtime.add(remove)
+    await _async_initialize_native(runtime, validated, action, name, f"triggers.{index}")
 
 
 async def async_attach_native_resolution_trigger(
@@ -288,6 +321,8 @@ async def async_attach_native_resolution_trigger(
     name: str,
 ) -> None:
     """Attach the single native HA trigger used for auto-resolution."""
+    if definition.get("enabled") is False:
+        return
     hass: HomeAssistant = runtime.hass
     validated = await async_prepare_native_trigger(hass, definition, "resolve_when")
     if len(validated) != 1:
@@ -297,22 +332,7 @@ async def async_attach_native_resolution_trigger(
         del context
         accepted(normalize_native_trigger_context(hass, run_variables, index))
 
-    def log_callback(level: int, message: str, **kwargs: Any) -> None:
-        _LOGGER.log(level, "%s resolution: %s", name, message, **kwargs)
-
-    remove = await trigger_helper.async_initialize_triggers(
-        hass,
-        validated,
-        action,
-        DOMAIN,
-        f"{name} resolution",
-        log_callback,
-    )
-    if remove is None:
-        raise DefinitionError(
-            "resolve_when", "Home Assistant did not attach the resolution trigger"
-        )
-    runtime.add(remove)
+    await _async_initialize_native(runtime, validated, action, f"{name} resolution", "resolve_when")
 
 
 async def async_build_native_condition_checkers(

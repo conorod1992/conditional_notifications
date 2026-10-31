@@ -244,7 +244,7 @@ class LifecycleNotificationManager(NotificationManager):
         runtime.guard_duration(
             resolution_index,
             definition["entity_id"],
-            lambda _: self._current_resolution_context(record) is not None,
+            lambda state: self._resolution_context_for_state(record, definition, state) is not None,
         )
 
         def duration_done(

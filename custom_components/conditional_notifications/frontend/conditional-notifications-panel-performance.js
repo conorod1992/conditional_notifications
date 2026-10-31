@@ -279,9 +279,30 @@ class ConditionalNotificationsPanel extends BasePanel {
   }
 
   render() {
+    const focused = this.shadowRoot?.activeElement;
+    const inDialog = focused?.closest?.('[role="dialog"]');
+    const focusSelector = !inDialog
+      ? null
+      : focused.id
+        ? `#${CSS.escape(focused.id)}`
+        : focused.dataset?.path
+          ? `[data-path="${CSS.escape(focused.dataset.path)}"]${focused.type === "radio" ? `[value="${CSS.escape(focused.value)}"]` : ""}`
+          : focused.dataset?.action && focused.dataset?.id
+            ? `[data-action="${CSS.escape(focused.dataset.action)}"][data-id="${CSS.escape(focused.dataset.id)}"]`
+            : null;
+    const selection =
+      ["input", "textarea"].includes(focused?.localName) &&
+      typeof focused.selectionStart === "number"
+        ? [focused.selectionStart, focused.selectionEnd]
+        : null;
     super.render();
     if (!this.shadowRoot) return;
     const root = this.shadowRoot;
+    const restored = focusSelector && root.querySelector(focusSelector);
+    if (restored && !restored.disabled) {
+      restored.focus({ preventScroll: true });
+      if (selection) restored.setSelectionRange?.(...selection);
+    }
     this.bindModalFocus();
     const timezone = root.querySelector('[data-option-key="schedule"]');
     if (timezone && !timezone.querySelector(".timezone-note")) {

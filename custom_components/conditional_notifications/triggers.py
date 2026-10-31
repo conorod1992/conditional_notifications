@@ -78,14 +78,16 @@ def _numeric_match(
     )
 
 
-def _zone_match(hass: HomeAssistant, zone_entity_id: str, state: State | None) -> bool:
-    """Match a state against a zone using Home Assistant's canonical semantics."""
+def _zone_match(hass: HomeAssistant, zone_entity_id: str, state: State | None) -> bool | None:
+    """Distinguish known zone membership from missing location information."""
     if state is None:
         return False
+    if is_unknown_state(state.state) or hass.states.get(zone_entity_id) is None:
+        return None
     try:
         return zone_matches(hass, zone_entity_id, state)
     except ConditionError:
-        return False
+        return None
 
 
 class RuntimeSubscriptions:
@@ -217,6 +219,8 @@ def attach_trigger(
                 )
                 old_inside = _zone_match(hass, zone_entity_id, old)
                 new_inside = _zone_match(hass, zone_entity_id, new)
+                if old_inside is None or new_inside is None:
+                    return
                 matches = (definition["event"] == "enter" and not old_inside and new_inside) or (
                     definition["event"] == "leave" and old_inside and not new_inside
                 )

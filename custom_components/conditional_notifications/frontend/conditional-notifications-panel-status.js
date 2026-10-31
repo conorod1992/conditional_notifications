@@ -130,6 +130,7 @@ class ConditionalNotificationsPanel extends BasePanel {
     this.detailId = record?.id || null;
     this._focusDetailsOnRender = Boolean(this.detailId);
     this.render();
+    if (this.detailId) void this.ensureHistoryLoaded?.();
   }
 
   closeDetails() {

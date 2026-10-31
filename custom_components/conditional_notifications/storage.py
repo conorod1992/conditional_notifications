@@ -43,8 +43,11 @@ class NotificationStore:
 
     async def async_load(self) -> None:
         data = await self._store.async_load() or {}
+        reasons = data.get("invalid_reasons")
         self.invalid_reasons = {
-            str(key): str(value) for key, value in data.get("invalid_reasons", {}).items()
+            key: value
+            for key, value in (reasons.items() if isinstance(reasons, dict) else ())
+            if isinstance(key, str) and isinstance(value, str)
         }
         self.records = {}
         self.invalid_records = [

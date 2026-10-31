@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import logging
-import math
 from copy import deepcopy
 from datetime import timedelta
 from typing import Any
 
-from homeassistant.exceptions import ConditionError, HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.util import dt as dt_util
 
-from .conditions import is_unknown_state, numeric_matches, state_value, zone_matches
+from .conditions import is_unknown_state, state_value
 from .delivery import async_clear
 from .lifecycle import LifecycleNotificationManager as LegacyLifecycleNotificationManager
 from .manager import NotFound, NotificationManager
@@ -37,6 +36,37 @@ _LOGGER = logging.getLogger(__name__)
 
 class LifecycleNotificationManager(LegacyLifecycleNotificationManager):
     """Use HA-native trigger/condition machinery while preserving notification lifecycle."""
+
+    async def _async_check_observation_access(self, record: NotificationRecord) -> None:
+        await async_validate_observation_access(self.hass, record.definition, record.owner_id)
+        await async_validate_native_observation_access(
+            self.hass, record.definition, record.owner_id
+        )
+
+    async def _async_authorize_occurrence(self, record: NotificationRecord, revision: int) -> bool:
+        """Stop before recording data if an owner's observation rights changed."""
+        try:
+            await self._async_check_observation_access(record)
+        except DefinitionError:
+            async with self._lock(record.id):
+                if self.store.records.get(record.id) is not record or record.revision != revision:
+                    return False
+                if runtime := self._runtimes.pop(record.id, None):
+                    runtime.cancel()
+                record.revision += 1
+                record.enabled = False
+                record.status = "error"
+                record.updated_at = utc_iso()
+                record.last_ignored_reason = "Observation stopped because owner permissions changed"
+                self._add_history(record, "error", record.last_ignored_reason)
+                await self.store.async_save()
+            self._broadcast("error", record, record.id)
+            return False
+        return (
+            not self._is_shutting_down()
+            and self.store.records.get(record.id) is record
+            and record.revision == revision
+        )
 
     async def _async_validate_definition_for_owner(
         self, definition: dict[str, Any], owner_id: str | None
@@ -261,10 +291,16 @@ class LifecycleNotificationManager(LegacyLifecycleNotificationManager):
     ) -> None:
         """Attach legacy and HA-native subscriptions into one revision-owned runtime."""
         revision = record.revision
-        await async_validate_observation_access(self.hass, record.definition, record.owner_id)
-        await async_validate_native_observation_access(
-            self.hass, record.definition, record.owner_id
-        )
+        try:
+            await self._async_check_observation_access(record)
+        except DefinitionError:
+            if (
+                self.store.records.get(record.id) is record
+                and record.revision == revision
+                and (runtime := self._runtimes.pop(record.id, None))
+            ):
+                runtime.cancel()
+            raise
         if self._is_shutting_down():
             return
         current_record = self.store.records.get(record.id)
@@ -384,7 +420,7 @@ class LifecycleNotificationManager(LegacyLifecycleNotificationManager):
 
             if allow_current and record.definition.get("match_current_state"):
                 await self._async_match_current(record)
-        except Exception:
+        except BaseException:
             current = self._runtimes.get(record.id)
             if current is runtime:
                 self._runtimes.pop(record.id, None)
@@ -396,7 +432,9 @@ class LifecycleNotificationManager(LegacyLifecycleNotificationManager):
         if self._is_shutting_down():
             return
         record = self.store.records.get(record_id)
-        if record is None or record.revision != revision:
+        if record is None or record.revision != revision or not record.enabled or record.paused:
+            return
+        if not await self._async_authorize_occurrence(record, revision):
             return
 
         final_trigger = trigger
@@ -431,6 +469,21 @@ class LifecycleNotificationManager(LegacyLifecycleNotificationManager):
             or (projected.get("type") == "state" and "to" not in projected)
         )
 
+    async def _async_resolve(self, record_id: str, revision: int, trigger: dict[str, Any]) -> None:
+        record = self.store.records.get(record_id)
+        if record is None or record.revision != revision or not record.active_occurrence:
+            return
+        if await self._async_authorize_occurrence(record, revision):
+            await super()._async_resolve(record_id, revision, trigger)
+
+    async def async_test(self, record: NotificationRecord) -> dict[str, Any]:
+        self._require_current_record(record)
+        if not await self._async_authorize_occurrence(record, record.revision):
+            raise DefinitionError(
+                "owner_id", "owner no longer has permission to observe this definition"
+            )
+        return await super().async_test(record)
+
     def _current_resolution_context(self, record: NotificationRecord) -> dict[str, Any] | None:
         """Evaluate current-state semantics only for safely projectable native triggers."""
         source = record.definition.get("resolve_when")
@@ -439,53 +492,11 @@ class LifecycleNotificationManager(LegacyLifecycleNotificationManager):
         definition = legacy_trigger_view(source)
         if definition is None:
             return None
-        kind = definition.get("type")
-        if kind not in {"state", "numeric_state", "zone"}:
+        if definition.get("type") not in {"state", "numeric_state", "zone"}:
             return None
-        entity_id = definition["entity_id"]
-        current = self.hass.states.get(entity_id)
-        if current is None:
-            return None
-
-        matched = False
-        actual: Any = None
-        if kind == "state":
-            if "to" not in definition:
-                return None
-            actual = state_value(current, definition.get("attribute"))
-            matched = (
-                actual is not None and not is_unknown_state(actual) and actual == definition["to"]
-            )
-        elif kind == "numeric_state":
-            raw = state_value(current, definition.get("attribute"))
-            try:
-                actual = float(raw)
-            except (TypeError, ValueError):
-                actual = None
-            if actual is not None and not math.isfinite(actual):
-                actual = None
-            matched = numeric_matches(actual, definition)
-        else:
-            try:
-                inside = zone_matches(
-                    self.hass,
-                    definition["zone_entity_id"],
-                    current,
-                )
-            except ConditionError:
-                return None
-            matched = inside if definition["event"] == "enter" else not inside
-            actual = current.state
-
-        if not matched:
-            return None
-        return {
-            "type": kind,
-            "entity_id": entity_id,
-            "current_value": actual,
-            "matched_current_resolution": True,
-            "timestamp": dt_util.now().isoformat(),
-        }
+        return self._resolution_context_for_state(
+            record, definition, self.hass.states.get(definition["entity_id"])
+        )
 
     async def _async_match_current(self, record: NotificationRecord) -> None:
         """Seed projectable state triggers without inventing semantics for other HA types."""

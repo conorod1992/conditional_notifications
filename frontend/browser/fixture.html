@@ -53,9 +53,15 @@
         config: { time_zone: "Europe/Dublin" },
         services: { notify: { mobile_app_phone: {} } },
         callWS: async (request) => {
-          window.calls.push(request);
+          window.calls.push(structuredClone(request));
           if (request.type.endsWith("/list")) return records;
-          if (request.type.endsWith("/history")) return history;
+          if (request.type.endsWith("/history")) {
+            if (window.delayHistory)
+              await new Promise((resolve) => {
+                window.releaseHistory = resolve;
+              });
+            return history;
+          }
           if (request.type.endsWith("/preferences"))
             return { delivery: defaults, time_zone: "Europe/Dublin" };
           if (request.type.endsWith("/quarantine")) return quarantined;
@@ -64,6 +70,13 @@
               code: "invalid_definition",
               message: "triggers.0.for: Invalid duration",
             };
+          if (
+            window.delaySave &&
+            /\/(create|update|recover)$/.test(request.type)
+          )
+            await new Promise((resolve) => {
+              window.releaseSave = resolve;
+            });
           if (request.type.endsWith("/recover")) quarantined = [];
           return {
             id: "saved",
