@@ -144,6 +144,21 @@ test("keyboard actions invoke the button and card activation still opens details
   await expect(page.locator(".detail-dialog")).toBeVisible();
 });
 
+test("clearing a limited count stays visibly empty after another form change", async ({
+  page,
+}) => {
+  await boot(page, { records: [record()] });
+  await page.locator('[data-edit="one"]').click();
+  await page.locator('input[value="limited"]').check();
+  await page.locator('[data-path="max_notifications"]').fill("");
+  await page.locator('[data-path="delivery.use_defaults"]').uncheck();
+  await expect(page.locator('[data-path="max_notifications"]')).toHaveValue("");
+  await page.locator("#save-editor").click();
+  await expect(page.locator(".editor-error-summary")).toContainText(
+    "positive count",
+  );
+});
+
 test("native edits update correlation and current-state eligibility immediately", async ({
   page,
 }) => {

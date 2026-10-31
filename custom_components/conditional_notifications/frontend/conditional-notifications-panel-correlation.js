@@ -285,7 +285,7 @@ class ConditionalNotificationsPanel extends BasePanel {
         )
         .join(
           "",
-        )}</div>${d.repeat_policy === "limited" ? `<label>Maximum notifications<input type="number" min="1" data-path="max_notifications" value="${d.max_notifications || 3}"></label>` : ""}</section>
+        )}</div>${d.repeat_policy === "limited" ? `<label>Maximum notifications<input type="number" min="1" data-path="max_notifications" value="${d.max_notifications ?? ""}"></label>` : ""}</section>
 
       <details class="more-options"><summary>More options</summary><div class="advanced">
         <div class="advanced-group" data-option-key="schedule"><h4>Schedule & expiry</h4><p class="section-help">Leave these blank for a notification that starts now and has no deadline.</p><div class="grid"><label>Available from<input type="datetime-local" data-path="available_from" value="${this.dateTimeValue(d.available_from)}"></label><label>Expires at<input type="datetime-local" data-path="expires_at" value="${this.dateTimeValue(d.expires_at)}"></label></div><label class="check"><input type="checkbox" data-path="notify_on_expiry" ${d.notify_on_expiry ? "checked" : ""}> Notify me if nothing qualifies before expiry</label>${d.notify_on_expiry ? `<div class="grid"><label>Expiry title<input data-path="expiry_title" value="${escLocal(d.expiry_title || `Expired: ${d.name}`)}"></label><label>Expiry message<input data-path="expiry_message" value="${escLocal(d.expiry_message || "No qualifying event occurred.")}"></label></div>` : ""}</div>
