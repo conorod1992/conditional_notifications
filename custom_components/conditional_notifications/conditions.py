@@ -19,6 +19,18 @@ def is_unknown_state(value: Any) -> bool:
     return isinstance(value, str) and value in UNKNOWN_STATES
 
 
+def zone_matches(hass: HomeAssistant, zone_id: str, entity: Any) -> bool:
+    """Honor explicit membership consistently across supported HA versions."""
+    state = hass.states.get(entity) if isinstance(entity, str) else entity
+    zone = hass.states.get(zone_id)
+    if state is None or zone is None or is_unknown_state(state.state):
+        return False
+    membership = state.attributes.get("in_zones")
+    if isinstance(membership, list):
+        return zone_id in membership
+    return zone_condition(hass, zone, state)
+
+
 def _numeric_value(state: Any, attribute: str | None) -> float | None:
     if state is None:
         return None
@@ -104,7 +116,7 @@ def async_evaluate_conditions(
             passed = numeric_matches(actual, definition)
         elif kind == "zone":
             try:
-                passed = zone_condition(hass, definition["zone_entity_id"], definition["entity_id"])
+                passed = zone_matches(hass, definition["zone_entity_id"], definition["entity_id"])
             except (ConditionError, AttributeError, ValueError):
                 passed = False
         elif kind == "time":

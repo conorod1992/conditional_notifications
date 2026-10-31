@@ -67,7 +67,10 @@ async def test_modern_notify_entity_does_not_receive_unsupported_companion_data(
         blocking=True,
         target={"entity_id": "notify.phone"},
     )
-    assert result == [{"channel": "notify.phone", "success": True}]
+    assert result[0] == {"channel": "notify.phone", "success": True}
+    assert result[1]["channel"] == "companion_options"
+    assert not result[1]["success"]
+    assert "title and message only" in result[1]["error"]
 
 
 @pytest.mark.asyncio
@@ -103,6 +106,7 @@ async def test_legacy_mobile_service_receives_only_bounded_companion_data() -> N
             "message": "The door opened",
             "data": {
                 "url": "/lovelace/security",
+                "clickAction": "/lovelace/security",
                 "actions": [
                     {"action": "SILENCE_ALERT", "title": "Silence"},
                     {"action": "URI", "title": "Open cameras", "uri": "/lovelace/cameras"},

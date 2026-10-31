@@ -7,6 +7,8 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
+from .native_automation import trigger_kind
+
 
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
@@ -17,6 +19,7 @@ async def async_get_config_entry_diagnostics(
         "version": 1,
         "record_count": len(records),
         "history_count": len(manager.store.history),
+        "quarantined_count": len(manager.store.invalid_records),
         "status_counts": {
             status: sum(1 for record in records if record.status == status)
             for status in {record.status for record in records}
@@ -26,10 +29,12 @@ async def async_get_config_entry_diagnostics(
                 1
                 for record in records
                 for trigger in record.definition["triggers"]
-                if trigger["type"] == kind
+                if trigger_kind(trigger) == kind
             )
             for kind in {
-                trigger["type"] for record in records for trigger in record.definition["triggers"]
+                trigger_kind(trigger)
+                for record in records
+                for trigger in record.definition["triggers"]
             }
         },
         "options": {

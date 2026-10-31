@@ -38,10 +38,14 @@ class NotificationStore:
         )
         self.records: dict[str, NotificationRecord] = {}
         self.invalid_records: list[dict[str, Any]] = []
+        self.invalid_reasons: dict[str, str] = {}
         self.history: list[HistoryItem] = []
 
     async def async_load(self) -> None:
         data = await self._store.async_load() or {}
+        self.invalid_reasons = {
+            str(key): str(value) for key, value in data.get("invalid_reasons", {}).items()
+        }
         self.records = {}
         self.invalid_records = [
             item for item in data.get("invalid_records", []) if isinstance(item, dict)
@@ -83,6 +87,7 @@ class NotificationStore:
             {
                 "records": [record.as_dict() for record in self.records.values()],
                 "invalid_records": list(self.invalid_records),
+                "invalid_reasons": dict(self.invalid_reasons),
                 "history": [
                     {
                         "id": item.id,
@@ -100,6 +105,11 @@ class NotificationStore:
 
     def add_history(self, item: HistoryItem, *, days: int, maximum: int) -> None:
         self.history.append(item)
+        self.prune_history(days=days, maximum=maximum)
+
+    def prune_history(self, *, days: int, maximum: int) -> bool:
+        """Apply retention even when no new occurrence has been recorded."""
+        before = len(self.history)
         cutoff = datetime.now().astimezone() - timedelta(days=days)
         retained: list[HistoryItem] = []
         for entry in self.history:
@@ -107,6 +117,7 @@ class NotificationStore:
             if timestamp is not None and timestamp >= cutoff:
                 retained.append(entry)
         self.history = retained[-maximum:]
+        return len(self.history) != before
 
     def history_for(self, notification_id: str | None = None) -> list[dict[str, Any]]:
         items = self.history

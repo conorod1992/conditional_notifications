@@ -16,6 +16,62 @@ from .manager import AmbiguousReference, NotFound
 from .models import NotificationRecord
 from .security import MutationForbidden, require_mutation_access
 
+_TRIGGER_SCHEMA = vol.Schema(
+    {
+        vol.Optional("type"): vol.In(["state", "numeric_state", "zone", "event", "named"]),
+        vol.Optional("trigger"): str,
+        vol.Optional("entity_id"): vol.Any(str, [str]),
+        vol.Optional("to"): str,
+        vol.Optional("from"): str,
+        vol.Optional("above"): vol.Any(int, float, str),
+        vol.Optional("below"): vol.Any(int, float, str),
+        vol.Optional("trigger_id"): str,
+        vol.Optional("event_type"): str,
+    },
+    extra=vol.ALLOW_EXTRA,
+)
+_DEFINITION_FIELDS = {
+    "name": str,
+    "title": str,
+    "message": str,
+    "triggers": [_TRIGGER_SCHEMA],
+    "conditions": [dict],
+    "repeat_policy": vol.In(["once", "every", "limited"]),
+    "max_notifications": int,
+    "cooldown": vol.Any(int, float, dict),
+    "debounce": vol.Any(int, float, dict),
+    "match": vol.In(["any", "all_within"]),
+    "match_window": vol.Any(int, float, dict),
+    "delivery": dict,
+    "available_from": str,
+    "expires_at": str,
+    "active_window": dict,
+    "resolve_when": _TRIGGER_SCHEMA,
+    "clear_on_resolve": bool,
+    "match_current_state": bool,
+    "notify_on_expiry": bool,
+    "expiry_title": str,
+    "expiry_message": str,
+    "resolved_title": str,
+    "resolved_message": str,
+    "description": str,
+    "semantic_key": str,
+    "enabled": bool,
+}
+
+
+def _definition_schema(*, partial: bool = False) -> vol.Schema:
+    return vol.Schema(
+        {
+            (
+                vol.Required(key)
+                if not partial and key in {"name", "title", "message", "triggers"}
+                else vol.Optional(key)
+            ): value
+            for key, value in _DEFINITION_FIELDS.items()
+        }
+    )
+
 
 async def _identity(hass: HomeAssistant, context: llm.LLMContext) -> tuple[str | None, bool]:
     user_id = context.context.user_id if context.context else None
@@ -63,7 +119,7 @@ class _Tool(llm.Tool):
 class CreateTool(_Tool):
     name = "CreateConditionalNotification"
     description = "Create a bounded event-driven notification from a normalized definition; never submit automation YAML."
-    parameters = vol.Schema({vol.Required("definition"): dict})
+    parameters = vol.Schema({vol.Required("definition"): _definition_schema()})
 
     @override
     async def async_call(
@@ -109,7 +165,7 @@ class UpdateTool(_Tool):
     parameters = vol.Schema(
         {
             vol.Required("reference"): str,
-            vol.Required("changes"): dict,
+            vol.Required("changes"): _definition_schema(partial=True),
             vol.Optional("entity_hint"): str,
         }
     )
@@ -188,6 +244,11 @@ class ConditionalNotificationsAPI(llm.API):
             api_prompt=(
                 "Use these tools for requests to notify the user when an event happens. Use only bounded definitions "
                 "with entity IDs; never create automation YAML. Mutations must use an exact, unambiguous reference."
+                ' A minimal definition is {"name":"Door opened","triggers":[{"type":"state",'
+                '"entity_id":"binary_sensor.front_door","to":"on"}],"title":"Door",'
+                '"message":"The front door opened","repeat_policy":"once"}. '
+                "Use only these notification definitions; do not create reminders or deferred actions. "
+                "For non-admin users, message templates can use trigger and notification data only."
             ),
             llm_context=llm_context,
             tools=[

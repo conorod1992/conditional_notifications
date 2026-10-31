@@ -66,6 +66,9 @@ def legacy_trigger_view(definition: dict[str, Any]) -> dict[str, Any] | None:
     if not is_native_trigger(definition):
         return definition
 
+    if definition.get("enabled", True) is not True:
+        return None
+
     kind = trigger_kind(definition)
     if kind not in {"state", "numeric_state", "zone", "event"}:
         return None
@@ -73,7 +76,7 @@ def legacy_trigger_view(definition: dict[str, Any]) -> dict[str, Any] | None:
     result: dict[str, Any] = {"type": kind}
     if kind in {"state", "numeric_state", "zone"}:
         entity_id = definition.get("entity_id")
-        if not isinstance(entity_id, str):
+        if not isinstance(entity_id, str) or "." not in entity_id:
             return None
         result["entity_id"] = entity_id
 
@@ -81,6 +84,13 @@ def legacy_trigger_view(definition: dict[str, Any]) -> dict[str, Any] | None:
         for key in ("attribute", "for"):
             if key in definition:
                 result[key] = deepcopy(definition[key])
+        if "for" in result:
+            try:
+                # Dynamic durations belong exclusively to HA's native listener.
+                seconds = cv.positive_time_period(result["for"]).total_seconds()
+            except (vol.Invalid, TypeError, ValueError):
+                return None
+            result["for"] = seconds
 
     if kind == "state":
         for key in ("from", "to"):

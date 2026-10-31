@@ -9,7 +9,6 @@ from copy import deepcopy
 from datetime import timedelta
 from typing import Any
 
-from homeassistant.components.zone.condition import zone as zone_condition
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConditionError, HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
@@ -22,6 +21,7 @@ from .conditions import (
     is_unknown_state,
     numeric_matches,
     state_value,
+    zone_matches,
 )
 from .const import DEFAULT_OPTIONS, DOMAIN, EVENTS, SIGNAL_CHANGED
 from .delivery import async_clear, async_deliver, async_render
@@ -609,6 +609,8 @@ class NotificationManager:
                     return False
                 return math.isfinite(current_value) and numeric_matches(current_value, definition)
 
+        runtime.guard_duration(index, entity_id, still_matches)
+
         def duration_done() -> None:
             current = self.hass.states.get(entity_id)
             if not still_matches(current):
@@ -733,7 +735,7 @@ class NotificationManager:
             matched = numeric_matches(actual, definition)
         else:
             try:
-                inside = zone_condition(
+                inside = zone_matches(
                     self.hass,
                     definition["zone_entity_id"],
                     current,
@@ -969,8 +971,7 @@ class NotificationManager:
                     self._delivery_task_store().pop(delivery_key, None)
                 await self.store.async_save()
             if delivered:
-                resolution_type = current.definition.get("resolve_when", {}).get("type")
-                if pending_resolution is not None and resolution_type in {"event", "named"}:
+                if pending_resolution is not None and self._resolution_is_transient(current):
                     await self._async_resolve(record_id, revision, pending_resolution)
                 else:
                     await self._async_resolve_if_current(current)
@@ -991,6 +992,9 @@ class NotificationManager:
                 self._delivery_store().discard(delivery_key)
                 self._pending_resolution_store().pop(delivery_key, None)
                 self._delivery_task_store().pop(delivery_key, None)
+
+    def _resolution_is_transient(self, record: NotificationRecord) -> bool:
+        return record.definition.get("resolve_when", {}).get("type") in {"event", "named"}
 
     async def _async_resolve(self, record_id: str, revision: int, trigger: dict[str, Any]) -> None:
         if self._is_shutting_down():

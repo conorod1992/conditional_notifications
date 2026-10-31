@@ -5,17 +5,17 @@ from __future__ import annotations
 import logging
 import math
 from copy import deepcopy
+from datetime import timedelta
 from typing import Any
 
-from homeassistant.components.zone.condition import zone as zone_condition
 from homeassistant.exceptions import ConditionError, HomeAssistantError
-from homeassistant.helpers.event import async_call_later
+from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.util import dt as dt_util
 
-from .conditions import is_unknown_state, numeric_matches, state_value
+from .conditions import is_unknown_state, numeric_matches, state_value, zone_matches
 from .delivery import async_clear
 from .lifecycle import LifecycleNotificationManager as LegacyLifecycleNotificationManager
-from .manager import NotificationManager
+from .manager import NotFound, NotificationManager
 from .models import NotificationRecord, parse_datetime, utc_iso
 from .native_automation import (
     async_attach_native_resolution_trigger,
@@ -37,13 +37,6 @@ _LOGGER = logging.getLogger(__name__)
 
 class LifecycleNotificationManager(LegacyLifecycleNotificationManager):
     """Use HA-native trigger/condition machinery while preserving notification lifecycle."""
-
-    def _native_pending_store(self) -> dict[tuple[str, int], dict[str, Any]]:
-        store = getattr(self, "_native_pending_resolutions", None)
-        if store is None:
-            store = {}
-            self._native_pending_resolutions = store
-        return store
 
     async def _async_validate_definition_for_owner(
         self, definition: dict[str, Any], owner_id: str | None
@@ -80,6 +73,8 @@ class LifecycleNotificationManager(LegacyLifecycleNotificationManager):
                     runtime.cancel()
                 self.store.records.pop(record.id, None)
                 self.store.invalid_records.append(record.as_dict())
+                field = err.field if isinstance(err, DefinitionError) else "definition"
+                self.store.invalid_reasons[record.id] = f"Validation failed at {field}"
                 quarantined = True
                 _LOGGER.warning(
                     "Ignoring invalid persisted Conditional Notifications record %s: %s",
@@ -88,9 +83,77 @@ class LifecycleNotificationManager(LegacyLifecycleNotificationManager):
                 )
         if quarantined:
             await self.store.async_save()
+        self._retention_unsubscribe = async_track_time_interval(
+            self.hass,
+            lambda _: self._schedule_task(self._async_prune_retained_history()),
+            timedelta(hours=1),
+        )
+
+    async def _async_prune_retained_history(self) -> None:
+        if self.store.prune_history(
+            days=int(self.options["history_retention_days"]),
+            maximum=int(self.options["history_max_records"]),
+        ):
+            await self.store.async_save()
+            self._broadcast("history_pruned", None, "")
+
+    def quarantined_for_user(self, user_id: str | None, is_admin: bool) -> list[dict[str, Any]]:
+        """Return repairable definitions only to their owner or an administrator."""
+        return [
+            {
+                "id": item.get("id"),
+                "name": item.get("name", "Invalid notification"),
+                "definition": deepcopy(item.get("definition", {})),
+                "reason": self.store.invalid_reasons.get(
+                    str(item.get("id")), "Stored record needs repair"
+                ),
+            }
+            for item in self.store.invalid_records
+            if is_admin or (user_id is not None and item.get("owner_id") == user_id)
+        ]
+
+    async def async_recover(
+        self, record_id: str, definition: dict[str, Any], user_id: str | None, is_admin: bool
+    ) -> dict[str, Any]:
+        """Repair a quarantined watch, preserving its ID and original ownership."""
+        async with self._lock(f"quarantine:{record_id}"):
+            item = next(
+                (item for item in self.store.invalid_records if item.get("id") == record_id), None
+            )
+            if item is None or not (
+                is_admin or (user_id is not None and item.get("owner_id") == user_id)
+            ):
+                raise NotFound("Quarantined notification was not found")
+            if record_id in self.store.records:
+                raise DefinitionError("id", "a live record already uses this ID")
+            normalized = await self._async_validate_definition_for_owner(
+                definition, item.get("owner_id")
+            )
+            record = NotificationRecord.create(normalized, item.get("owner_id"))
+            record.id = record_id
+            record.enabled = bool(normalized.pop("enabled", True))
+            record.status = "watching" if record.enabled else "disabled"
+            self.store.records[record.id] = record
+            try:
+                await self.async_rebuild(record)
+            except Exception:
+                self.store.records.pop(record.id, None)
+                if runtime := self._runtimes.pop(record.id, None):
+                    runtime.cancel()
+                raise
+            self.store.invalid_records.remove(item)
+            self.store.invalid_reasons.pop(record_id, None)
+            self._add_history(
+                record, "recovered", "Quarantined notification repaired; progress reset"
+            )
+            await self.store.async_save()
+        self._broadcast("recovered", record, record.id)
+        return record.public_dict(dt_util.now())
 
     async def async_shutdown(self) -> None:
-        self._native_pending_store().clear()
+        if unsubscribe := getattr(self, "_retention_unsubscribe", None):
+            unsubscribe()
+            self._retention_unsubscribe = None
         await super().async_shutdown()
 
     async def async_create(
@@ -186,6 +249,9 @@ class LifecycleNotificationManager(LegacyLifecycleNotificationManager):
         if projected is not None:
             super()._seed_current_duration(runtime, projected, index, accepted)
 
+    def _resolution_duration_definition(self, record: NotificationRecord) -> dict[str, Any] | None:
+        return legacy_trigger_view(record.definition.get("resolve_when", {}))
+
     async def async_rebuild(
         self,
         record: NotificationRecord,
@@ -194,18 +260,17 @@ class LifecycleNotificationManager(LegacyLifecycleNotificationManager):
         prove_current_durations: bool = False,
     ) -> None:
         """Attach legacy and HA-native subscriptions into one revision-owned runtime."""
+        revision = record.revision
         await async_validate_observation_access(self.hass, record.definition, record.owner_id)
         await async_validate_native_observation_access(
             self.hass, record.definition, record.owner_id
         )
-        self._clear_correlation(record.id)
-        self._native_pending_store().pop((record.id, record.revision), None)
-
         if self._is_shutting_down():
             return
         current_record = self.store.records.get(record.id)
-        if current_record is not record or current_record.revision != record.revision:
+        if current_record is not record or current_record.revision != revision:
             return
+        self._clear_correlation(record.id)
         if old := self._runtimes.pop(record.id, None):
             old.cancel()
         runtime = RuntimeSubscriptions(self.hass, record.id, record.revision)
@@ -253,6 +318,9 @@ class LifecycleNotificationManager(LegacyLifecycleNotificationManager):
                 runtime,
                 record.definition.get("conditions", []),
             )
+            if runtime.cancelled or self._runtimes.get(record.id) is not runtime:
+                runtime.cancel()
+                return
 
             for index, definition in enumerate(record.definition["triggers"]):
 
@@ -261,12 +329,16 @@ class LifecycleNotificationManager(LegacyLifecycleNotificationManager):
                     record_id: str = record.id,
                     revision: int = record.revision,
                 ) -> None:
-                    self._schedule_task(self._async_trigger(record_id, revision, context))
+                    if not runtime.cancelled and self._runtimes.get(record_id) is runtime:
+                        self._schedule_task(self._async_trigger(record_id, revision, context))
 
                 if is_native_trigger(definition):
                     await async_attach_native_trigger(
                         runtime, definition, index, accepted, record.name
                     )
+                    if runtime.cancelled or self._runtimes.get(record.id) is not runtime:
+                        runtime.cancel()
+                        return
                 else:
                     attach_trigger(runtime, definition, index, accepted)
 
@@ -288,7 +360,8 @@ class LifecycleNotificationManager(LegacyLifecycleNotificationManager):
                     record_id: str = record.id,
                     revision: int = record.revision,
                 ) -> None:
-                    self._schedule_task(self._async_resolve(record_id, revision, context))
+                    if not runtime.cancelled and self._runtimes.get(record_id) is runtime:
+                        self._schedule_task(self._async_resolve(record_id, revision, context))
 
                 resolution_index = len(record.definition["triggers"])
                 if is_native_trigger(resolve_definition):
@@ -299,9 +372,15 @@ class LifecycleNotificationManager(LegacyLifecycleNotificationManager):
                         resolved,
                         record.name,
                     )
+                    if runtime.cancelled or self._runtimes.get(record.id) is not runtime:
+                        runtime.cancel()
+                        return
                 else:
                     attach_trigger(runtime, resolve_definition, resolution_index, resolved)
                 await self._async_resolve_if_current(record)
+                if runtime.cancelled or self._runtimes.get(record.id) is not runtime:
+                    runtime.cancel()
+                    return
 
             if allow_current and record.definition.get("match_current_state"):
                 await self._async_match_current(record)
@@ -343,26 +422,14 @@ class LifecycleNotificationManager(LegacyLifecycleNotificationManager):
             CURRENT_CONDITION_CHECKERS.reset(checker_token)
             CURRENT_TRIGGER.reset(trigger_token)
 
-        pending = self._native_pending_store().pop((record_id, revision), None)
-        current = self.store.records.get(record_id)
-        if pending is not None and current is not None and current.active_occurrence:
-            await self._async_resolve(record_id, revision, pending)
-
-    async def _async_resolve(self, record_id: str, revision: int, trigger: dict[str, Any]) -> None:
-        """Retain transient native resolution events that occur during delivery."""
-        record = self.store.records.get(record_id)
-        resolve_when = record.definition.get("resolve_when") if record else None
-        if (
-            record is not None
-            and record.revision == revision
-            and record.active_occurrence
-            and isinstance(resolve_when, dict)
-            and is_native_trigger(resolve_when)
-            and legacy_trigger_view(resolve_when) is None
-            and any(key[0] == record_id and key[1] == revision for key in self._delivery_store())
-        ):
-            self._native_pending_store()[(record_id, revision)] = deepcopy(trigger)
-        await super()._async_resolve(record_id, revision, trigger)
+    def _resolution_is_transient(self, record: NotificationRecord) -> bool:
+        source = record.definition.get("resolve_when", {})
+        projected = legacy_trigger_view(source)
+        return (
+            projected is None
+            or projected.get("type") in {"event", "named"}
+            or (projected.get("type") == "state" and "to" not in projected)
+        )
 
     def _current_resolution_context(self, record: NotificationRecord) -> dict[str, Any] | None:
         """Evaluate current-state semantics only for safely projectable native triggers."""
@@ -400,7 +467,7 @@ class LifecycleNotificationManager(LegacyLifecycleNotificationManager):
             matched = numeric_matches(actual, definition)
         else:
             try:
-                inside = zone_condition(
+                inside = zone_matches(
                     self.hass,
                     definition["zone_entity_id"],
                     current,

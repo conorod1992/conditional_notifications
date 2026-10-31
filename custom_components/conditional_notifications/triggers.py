@@ -7,13 +7,12 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
-from homeassistant.components.zone.condition import zone as zone_condition
 from homeassistant.core import Event, HomeAssistant, State, callback
 from homeassistant.exceptions import ConditionError
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.util import dt as dt_util
 
-from .conditions import is_unknown_state, numeric_matches, state_value
+from .conditions import is_unknown_state, numeric_matches, state_value, zone_matches
 from .const import DOMAIN
 from .security import NAMED_TRIGGER_ADMIN_SCOPE
 
@@ -81,10 +80,10 @@ def _numeric_match(
 
 def _zone_match(hass: HomeAssistant, zone_entity_id: str, state: State | None) -> bool:
     """Match a state against a zone using Home Assistant's canonical semantics."""
-    if state is None or (zone_state := hass.states.get(zone_entity_id)) is None:
+    if state is None:
         return False
     try:
-        return zone_condition(hass, zone_state, state)
+        return zone_matches(hass, zone_entity_id, state)
     except ConditionError:
         return False
 
@@ -99,11 +98,16 @@ class RuntimeSubscriptions:
         self.native_condition_checkers: dict[int, Any] = {}
         self._unsubscribers: list[Callable[[], None]] = []
         self._duration: dict[int, Callable[[], None]] = {}
+        self.cancelled = False
 
     def add(self, unsubscribe: Callable[[], None]) -> None:
+        if self.cancelled:
+            unsubscribe()
+            return
         self._unsubscribers.append(unsubscribe)
 
     def cancel(self) -> None:
+        self.cancelled = True
         for unsubscribe in self._duration.values():
             unsubscribe()
         self._duration.clear()
@@ -117,13 +121,28 @@ class RuntimeSubscriptions:
 
     def schedule_duration(self, index: int, seconds: float, action: Callable[[], None]) -> None:
         self.cancel_duration(index)
+        if self.cancelled:
+            return
 
         @callback
         def finished(_: datetime) -> None:
             self._duration.pop(index, None)
-            action()
+            if not self.cancelled:
+                action()
 
         self._duration[index] = async_call_later(self.hass, seconds, finished)
+
+    def guard_duration(
+        self, index: int, entity_id: str, matches: Callable[[State | None], bool]
+    ) -> None:
+        """Cancel a seeded proof as soon as continuous truth is interrupted."""
+
+        @callback
+        def changed(event: Event) -> None:
+            if not matches(event.data.get("new_state")):
+                self.cancel_duration(index)
+
+        self.add(async_track_state_change_event(self.hass, [entity_id], changed))
 
 
 def _named_event_authorized(runtime: RuntimeSubscriptions, event: Event) -> bool:
