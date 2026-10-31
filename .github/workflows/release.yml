@@ -133,8 +133,11 @@ jobs:
       - name: Run frontend checks
         working-directory: frontend
         run: |
+          npm ci
           npm run lint
           npm test
+          npx playwright install --with-deps chromium
+          npm run test:browser
           npm run build
 
       - name: Verify build is reproducible
