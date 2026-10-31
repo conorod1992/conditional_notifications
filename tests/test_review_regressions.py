@@ -386,9 +386,15 @@ async def test_native_numeric_resolution_rechecks_current_truth(native_manager):
 
 def test_llm_definition_schema_is_structured_and_serializable():
     from custom_components.conditional_notifications.llm import CreateTool
-    from voluptuous_openapi import convert
+    from homeassistant.helpers import llm
 
-    schema = convert(CreateTool.parameters)
+    # HA 2026.10 replaced voluptuous_openapi with probatio's native codec.
+    if serializer := getattr(llm, "convert", None):
+        schema = serializer(CreateTool.parameters)
+    else:
+        import probatio
+
+        schema = probatio.to_openapi(CreateTool.parameters)
     definition_schema = schema["properties"]["definition"]
     assert set(definition_schema["required"]) == {"name", "title", "message", "triggers"}
     assert definition_schema["properties"]["triggers"]["type"] == "array"
