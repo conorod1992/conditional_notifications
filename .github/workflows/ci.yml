@@ -8,12 +8,16 @@ permissions:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        homeassistant: ["2026.6.0", "2026.7.3", "2026.10.4"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: "3.14", cache: pip}
       - run: python scripts/set_release_version.py --check
-      - run: pip install -r requirements_test.txt
+      - run: pip install -r requirements_test_tools.txt "homeassistant==${{ matrix.homeassistant }}"
       - run: ruff format --check .
       - run: ruff check .
       - run: mypy custom_components/conditional_notifications
@@ -24,10 +28,21 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: {node-version: "22"}
+      - run: npm ci
+        working-directory: frontend
       - run: npm run lint
         working-directory: frontend
       - run: npm test
         working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: npm run test:browser
+        working-directory: frontend
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-test-traces
+          path: frontend/test-results
       - run: npm run build
         working-directory: frontend
       - run: git diff --exit-code
