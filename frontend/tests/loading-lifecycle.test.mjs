@@ -2,24 +2,30 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 globalThis.HTMLElement = class {};
-globalThis.customElements = {get: () => undefined, define: () => {}};
+globalThis.customElements = { get: () => undefined, define: () => {} };
 
-const { ConditionalNotificationsPanel } = await import(
-  "../../custom_components/conditional_notifications/frontend/conditional-notifications-panel-lifecycle.js"
-);
+const { ConditionalNotificationsPanel } =
+  await import("../../custom_components/conditional_notifications/frontend/conditional-notifications-panel-performance.js");
 const panel = ConditionalNotificationsPanel.prototype;
 
 function contextWith(overrides = {}) {
-  const {hass, ...rest} = overrides;
-  const context = Object.assign(Object.create(panel), {
-    records: [],
-    history: [],
-    search: "",
-    loading: true,
-    loaded: false,
-    render() {},
-    showToast(message) { this.toastMessage = message; },
-  }, rest);
+  const { hass, ...rest } = overrides;
+  const context = Object.assign(
+    Object.create(panel),
+    {
+      records: [],
+      history: [],
+      search: "",
+      loading: true,
+      loaded: false,
+      render() {},
+      loadPanelMetadata() {},
+      showToast(message) {
+        this.toastMessage = message;
+      },
+    },
+    rest,
+  );
   if (hass !== undefined) {
     // Tests exercise lifecycle methods directly; bypass the real custom-element
     // setter unless a test specifically covers the Home Assistant bootstrap path.
@@ -45,41 +51,43 @@ test("Home Assistant property batching starts the first load", async () => {
   const wsCalls = [];
   const currentConnection = connection();
   const context = contextWith({
-    shadowRoot:{querySelectorAll:() => []},
+    shadowRoot: { querySelectorAll: () => [] },
   });
 
   context.setProperties({
-    panel:{url_path:"conditional-notifications"},
-    hass:{
-      connection:currentConnection,
-      callWS: async ({type}) => {
+    panel: { url_path: "conditional-notifications" },
+    hass: {
+      connection: currentConnection,
+      callWS: async ({ type }) => {
         wsCalls.push(type);
-        return type.endsWith("/list") ? [{id:"one"}] : [{event:"created"}];
+        return type.endsWith("/list")
+          ? [{ id: "one" }]
+          : [{ event: "created" }];
       },
     },
-    narrow:false,
-    route:{path:"/conditional-notifications"},
+    narrow: false,
+    route: { path: "/conditional-notifications" },
   });
 
-  assert.ok(context.loadPromise, "initial Home Assistant property batch should start loading");
+  assert.ok(
+    context.loadPromise,
+    "initial Home Assistant property batch should start loading",
+  );
   await context.loadPromise;
   assert.equal(context.loaded, true);
   assert.equal(context.loading, false);
-  assert.deepEqual(wsCalls, [
-    "conditional_notifications/list",
-    "conditional_notifications/history",
-  ]);
+  assert.deepEqual(wsCalls, ["conditional_notifications/list"]);
 });
 
 test("direct hass assignment uses the same bootstrap path", async () => {
   const currentConnection = connection();
   const context = contextWith({
-    shadowRoot:{querySelectorAll:() => []},
+    shadowRoot: { querySelectorAll: () => [] },
   });
 
   context.hass = {
-    connection:currentConnection,
-    callWS: async ({type}) => type.endsWith("/list") ? [{id:"one"}] : [],
+    connection: currentConnection,
+    callWS: async ({ type }) => (type.endsWith("/list") ? [{ id: "one" }] : []),
   };
 
   assert.ok(context.loadPromise);
@@ -90,12 +98,16 @@ test("direct hass assignment uses the same bootstrap path", async () => {
 test("initial data load does not wait for the live subscription", async () => {
   let resolveSubscription;
   const currentConnection = connection({
-    subscribeMessage: () => new Promise((resolve) => { resolveSubscription = resolve; }),
+    subscribeMessage: () =>
+      new Promise((resolve) => {
+        resolveSubscription = resolve;
+      }),
   });
   const context = contextWith({
     hass: {
-      connection:currentConnection,
-      callWS: async ({type}) => type.endsWith("/list") ? [{id:"one"}] : [{event:"created"}],
+      connection: currentConnection,
+      callWS: async ({ type }) =>
+        type.endsWith("/list") ? [{ id: "one" }] : [{ event: "created" }],
     },
   });
 
@@ -103,9 +115,16 @@ test("initial data load does not wait for the live subscription", async () => {
 
   assert.equal(context.loaded, true);
   assert.equal(context.loading, false);
-  assert.deepEqual(context.records, [{id:"one"}]);
-  assert.deepEqual(context.history, [{event:"created"}]);
-  assert.ok(context.subscriptionPromise, "subscription should continue independently");
+  assert.deepEqual(context.records, [{ id: "one" }]);
+  assert.deepEqual(
+    context.history,
+    [],
+    "history is loaded only when requested",
+  );
+  assert.ok(
+    context.subscriptionPromise,
+    "subscription should continue independently",
+  );
 
   resolveSubscription(() => {});
   await context.subscriptionPromise;
@@ -115,8 +134,10 @@ test("failed initial data load becomes retryable instead of staying on skeletons
   const currentConnection = connection();
   const context = contextWith({
     hass: {
-      connection:currentConnection,
-      callWS: async () => { throw new Error("socket unavailable"); },
+      connection: currentConnection,
+      callWS: async () => {
+        throw new Error("socket unavailable");
+      },
     },
   });
 
@@ -134,16 +155,17 @@ test("connection ready supersedes a stale initial load", async () => {
     loadPromise: staleLoad,
     loadGeneration: 1,
     hass: {
-      connection:currentConnection,
-      callWS: async ({type}) => type.endsWith("/list") ? [{id:"fresh"}] : [{event:"fresh"}],
+      connection: currentConnection,
+      callWS: async ({ type }) =>
+        type.endsWith("/list") ? [{ id: "fresh" }] : [{ event: "fresh" }],
     },
   });
 
   await context.handleConnectionReady();
 
   assert.equal(context.loaded, true);
-  assert.deepEqual(context.records, [{id:"fresh"}]);
-  assert.deepEqual(context.history, [{event:"fresh"}]);
+  assert.deepEqual(context.records, [{ id: "fresh" }]);
+  assert.deepEqual(context.history, [], "reconnection keeps history lazy");
 });
 
 test("connection ready supersedes a stale refresh and restores live updates", async () => {
@@ -159,31 +181,34 @@ test("connection ready supersedes a stale refresh and restores live updates", as
     loaded: true,
     refreshPromise: staleRefresh,
     refreshGeneration: 3,
-    records: [{id:"old"}],
+    records: [{ id: "old" }],
     hass: {
-      connection:currentConnection,
-      callWS: async ({type}) => type.endsWith("/list") ? [{id:"fresh"}] : [{event:"fresh"}],
+      connection: currentConnection,
+      callWS: async ({ type }) =>
+        type.endsWith("/list") ? [{ id: "fresh" }] : [{ event: "fresh" }],
     },
   });
 
   await context.handleConnectionReady();
 
-  assert.deepEqual(context.records, [{id:"fresh"}]);
+  assert.deepEqual(context.records, [{ id: "fresh" }]);
   assert.equal(subscriptions, 1);
   assert.equal(typeof context.unsubscribe, "function");
 });
 
 test("refresh failures preserve the last good data and are handled", async () => {
-  const previousRecords = [{id:"existing"}];
-  const previousHistory = [{event:"existing"}];
+  const previousRecords = [{ id: "existing" }];
+  const previousHistory = [{ event: "existing" }];
   const currentConnection = connection();
   const context = contextWith({
     records: previousRecords,
     history: previousHistory,
     loaded: true,
     hass: {
-      connection:currentConnection,
-      callWS: async () => { throw new Error("temporary disconnect"); },
+      connection: currentConnection,
+      callWS: async () => {
+        throw new Error("temporary disconnect");
+      },
     },
   });
 
@@ -197,41 +222,48 @@ test("refresh failures preserve the last good data and are handled", async () =>
 test("ready listener follows the active Home Assistant connection", () => {
   const calls = [];
   const first = {
-    addEventListener: (name, handler) => calls.push(["add-first", name, handler]),
-    removeEventListener: (name, handler) => calls.push(["remove-first", name, handler]),
+    addEventListener: (name, handler) =>
+      calls.push(["add-first", name, handler]),
+    removeEventListener: (name, handler) =>
+      calls.push(["remove-first", name, handler]),
   };
   const second = {
-    addEventListener: (name, handler) => calls.push(["add-second", name, handler]),
-    removeEventListener: (name, handler) => calls.push(["remove-second", name, handler]),
+    addEventListener: (name, handler) =>
+      calls.push(["add-second", name, handler]),
+    removeEventListener: (name, handler) =>
+      calls.push(["remove-second", name, handler]),
   };
-  const context = contextWith({hass:{connection:first}});
+  const context = contextWith({ hass: { connection: first } });
 
   context.attachConnectionReadyListener();
   context.attachConnectionReadyListener();
-  context.hass = {connection:second};
+  context.hass = { connection: second };
   context.attachConnectionReadyListener();
   context.detachConnectionReadyListener();
 
-  assert.deepEqual(calls.map(([action, name]) => [action, name]), [
-    ["add-first", "ready"],
-    ["remove-first", "ready"],
-    ["add-second", "ready"],
-    ["remove-second", "ready"],
-  ]);
+  assert.deepEqual(
+    calls.map(([action, name]) => [action, name]),
+    [
+      ["add-first", "ready"],
+      ["remove-first", "ready"],
+      ["add-second", "ready"],
+      ["remove-second", "ready"],
+    ],
+  );
 });
 
 test("refresh keeps the canonical record list complete while searching", async () => {
   const calls = [];
   const currentConnection = connection();
   const context = contextWith({
-    loaded:true,
-    search:"door",
-    hass:{
-      connection:currentConnection,
+    loaded: true,
+    search: "door",
+    hass: {
+      connection: currentConnection,
       callWS: async (payload) => {
         calls.push(payload);
         return payload.type.endsWith("/list")
-          ? [{id:"door"},{id:"window"}]
+          ? [{ id: "door" }, { id: "window" }]
           : [];
       },
     },
@@ -239,21 +271,23 @@ test("refresh keeps the canonical record list complete while searching", async (
 
   await context.refresh();
 
-  assert.deepEqual(calls[0], {type:"conditional_notifications/list"});
-  assert.deepEqual(context.records, [{id:"door"},{id:"window"}]);
+  assert.deepEqual(calls[0], { type: "conditional_notifications/list" });
+  assert.deepEqual(context.records, [{ id: "door" }, { id: "window" }]);
 });
 
 test("unchanged narrow property batches do not rebuild an open editor", () => {
   let renders = 0;
   const context = contextWith({
-    _narrow:false,
-    loaded:true,
-    render(){ renders += 1; },
-    shadowRoot:{querySelectorAll:() => []},
+    _narrow: false,
+    loaded: true,
+    render() {
+      renders += 1;
+    },
+    shadowRoot: { querySelectorAll: () => [] },
   });
 
-  context.setProperties({narrow:false});
+  context.setProperties({ narrow: false });
   assert.equal(renders, 0);
-  context.setProperties({narrow:true});
+  context.setProperties({ narrow: true });
   assert.equal(renders, 1);
 });

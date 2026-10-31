@@ -1,67 +1,79 @@
-import { ConditionalNotificationsPanel } from "./conditional-notifications-panel-native-automation.js";
-
-const panel = ConditionalNotificationsPanel.prototype;
-const originalBind = panel.bind;
-const originalHydrateEditor = panel.hydrateEditor;
-const originalOpenEditor = panel.openEditor;
-const originalSave = panel.save;
-const originalStyles = panel.styles;
-const originalUpdatePreview = panel.updatePreview;
-
-const ADVANCED_HEADINGS = new Map([
-  ["Schedule & expiry", "schedule"],
-  ["Timing protection", "timing"],
-  ["Recurring hours", "recurring"],
-  ["Resolution", "resolution"],
-  ["Multiple triggers", "correlation"],
-  ["Companion App", "companion"],
-]);
+import { ConditionalNotificationsPanel as BasePanel } from "./conditional-notifications-panel-native-automation.js";
 
 function errorLocation(key) {
-  if (key === "name") return {section:"Basics"};
-  if (key === "triggers" || key.startsWith("trigger")) return {section:"When"};
-  if (key === "conditions" || key.startsWith("condition")) return {section:"Only if"};
+  if (key.startsWith("delivery.companion"))
+    return { section: "More options", optionKey: "companion" };
+  key = key.startsWith("resolve_when") ? "resolve_when" : key.split(".")[0];
+  if (key === "name") return { section: "Basics" };
+  if (key === "triggers" || key.startsWith("trigger"))
+    return { section: "When" };
+  if (key === "conditions" || key.startsWith("condition"))
+    return { section: "Only if" };
   if (["title", "message", "delivery", "companion"].includes(key)) {
     return key === "companion"
-      ? {section:"More options", optionKey:"companion"}
-      : {section:"Send"};
+      ? { section: "More options", optionKey: "companion" }
+      : { section: "Send" };
   }
-  if (key === "repeat") return {section:"After notifying"};
+  if (
+    key === "repeat" ||
+    key === "max_notifications" ||
+    key === "repeat_policy"
+  )
+    return { section: "After notifying" };
   if (["available_from", "expires_at"].includes(key)) {
-    return {section:"More options", optionKey:"schedule"};
+    return { section: "More options", optionKey: "schedule" };
   }
   if (["cooldown", "debounce", "match_current_state"].includes(key)) {
-    return {section:"More options", optionKey:"timing"};
+    return { section: "More options", optionKey: "timing" };
   }
-  if (key === "active_window") return {section:"More options", optionKey:"recurring"};
-  if (key === "resolve_when") return {section:"More options", optionKey:"resolution"};
+  if (key === "active_window")
+    return { section: "More options", optionKey: "recurring" };
+  if (key === "resolution" || key.startsWith("resolve_when"))
+    return { section: "More options", optionKey: "resolution" };
   if (["match", "match_window"].includes(key)) {
-    return {section:"More options", optionKey:"correlation"};
+    return { section: "More options", optionKey: "correlation" };
   }
-  return {section:"Review"};
+  return { section: "Review" };
 }
 
 function editorErrorItems(errors = {}) {
   return Object.entries(errors)
     .filter(([, message]) => Boolean(message))
-    .map(([key, message]) => ({key, message:String(message), ...errorLocation(key)}));
+    .map(([key, message]) => ({
+      key,
+      message: String(message),
+      ...errorLocation(key),
+    }));
 }
 
 function activeAdvancedOptions(definition = {}) {
   const options = [];
-  if (definition.available_from || definition.expires_at || definition.notify_on_expiry) {
-    options.push({key:"schedule", label:"Schedule"});
+  if (
+    definition.available_from ||
+    definition.expires_at ||
+    definition.notify_on_expiry
+  ) {
+    options.push({ key: "schedule", label: "Schedule" });
   }
-  if (definition.cooldown || definition.debounce || definition.match_current_state) {
-    options.push({key:"timing", label:"Timing"});
+  if (
+    definition.cooldown ||
+    definition.debounce ||
+    definition.match_current_state
+  ) {
+    options.push({ key: "timing", label: "Timing" });
   }
-  if (definition.active_window) options.push({key:"recurring", label:"Hours"});
-  if (definition.resolve_when) options.push({key:"resolution", label:"Resolution"});
+  if (definition.active_window)
+    options.push({ key: "recurring", label: "Hours" });
+  if (definition.resolve_when)
+    options.push({ key: "resolution", label: "Resolution" });
   if (definition.match === "all_within") {
-    options.push({key:"correlation", label:"Correlation"});
+    options.push({ key: "correlation", label: "Correlation" });
   }
-  if (definition.delivery?.companion?.url || definition.delivery?.companion?.actions?.length) {
-    options.push({key:"companion", label:"Companion App"});
+  if (
+    definition.delivery?.companion?.url ||
+    definition.delivery?.companion?.actions?.length
+  ) {
+    options.push({ key: "companion", label: "Companion App" });
   }
   return options;
 }
@@ -74,12 +86,16 @@ function makeTextElement(name, className, text) {
 }
 
 function stepSection(root, title) {
-  return [...(root.querySelectorAll(".editor-body > section") || [])]
-    .find(section => section.dataset.editorSection === title);
+  return [...(root.querySelectorAll(".editor-body > section") || [])].find(
+    (section) => section.dataset.editorSection === title,
+  );
 }
 
-panel.styles = function() {
-  return originalStyles.call(this).replace("</style>", `
+class ConditionalNotificationsPanel extends BasePanel {
+  styles() {
+    return super.styles().replace(
+      "</style>",
+      `
     .editor-body{padding:0 24px 30px}
     .editor-body>.editor-step{margin:16px 0;padding:20px!important;border:1px solid color-mix(in srgb,var(--divider-color) 86%,transparent)!important;border-radius:16px;background:color-mix(in srgb,var(--secondary-background-color) 34%,var(--card-background-color))}
     .editor-body>.editor-step:first-of-type{margin-top:20px}
@@ -121,192 +137,41 @@ panel.styles = function() {
       .more-options-active,.more-options-hint{width:100%;margin-left:0;padding-left:20px}
       .more-options .advanced{padding:0 15px 5px}
     }
-  </style>`);
-};
+  </style>`,
+    );
+  }
 
-panel.syncEditorUxDynamicState = function() {
-  if (!this.editor || !this.shadowRoot) return;
-  const root = this.shadowRoot;
+  syncEditorUxDynamicState() {
+    if (!this.editor || !this.shadowRoot) return;
+    const root = this.shadowRoot;
 
-  const review = root.querySelector(".editor-review");
-  if (review) {
-    const heading = review.querySelector("h3");
-    if (heading) {
-      heading.textContent = "Review";
-      if (!review.querySelector(".section-help")) {
-        heading.insertAdjacentElement(
-          "afterend",
-          makeTextElement(
-            "p",
-            "section-help",
-            "Check the plain-English summary before creating the notification.",
-          ),
-        );
+    const review = root.querySelector(".editor-review");
+    if (review) {
+      const heading = review.querySelector("h3");
+      if (heading) {
+        heading.textContent = "Review";
+        if (!review.querySelector(".section-help")) {
+          heading.insertAdjacentElement(
+            "afterend",
+            makeTextElement(
+              "p",
+              "section-help",
+              "Check the plain-English summary before creating the notification.",
+            ),
+          );
+        }
       }
     }
-  }
 
-  const more = root.querySelector(".more-options");
-  if (!more) return;
-  const active = activeAdvancedOptions(this.editor.definition);
-  const activeKeys = new Set(active.map(item => item.key));
-  const summary = more.querySelector(":scope > summary");
-  if (summary) {
-    summary.replaceChildren(makeTextElement("span", "more-options-title", "More options"));
-    if (active.length) {
-      const badges = document.createElement("span");
-      badges.className = "more-options-active";
-      for (const item of active.slice(0, 3)) {
-        badges.append(makeTextElement("span", "option-chip", item.label));
-      }
-      if (active.length > 3) {
-        badges.append(makeTextElement("span", "option-chip", `+${active.length - 3}`));
-      }
-      summary.append(badges);
-    } else {
-      summary.append(makeTextElement("span", "more-options-hint", "Optional"));
-    }
-  }
-
-  for (const details of more.querySelectorAll(".advanced-disclosure[data-option-key]")) {
-    const state = details.querySelector(".advanced-option-state");
-    if (!state) continue;
-    const configured = activeKeys.has(details.dataset.optionKey);
-    state.textContent = configured ? "Configured" : "Optional";
-    state.classList.toggle("configured", configured);
-  }
-};
-
-panel.updatePreview = function() {
-  originalUpdatePreview.call(this);
-  this.syncEditorUxDynamicState();
-};
-
-panel.openEditor = function(record) {
-  this._editorUxOpenOptions = new Set();
-  return originalOpenEditor.call(this, record);
-};
-
-panel.focusEditorSection = function(sectionName, optionKey) {
-  const root = this.shadowRoot;
-  if (!root) return;
-
-  let target;
-  if (sectionName === "More options") {
     const more = root.querySelector(".more-options");
     if (!more) return;
-    more.open = true;
-    this.advancedOpen = true;
-    target = more;
-    if (optionKey) {
-      this._editorUxOpenOptions ??= new Set();
-      this._editorUxOpenOptions.add(optionKey);
-      const option = [...more.querySelectorAll(".advanced-disclosure")]
-        .find(details => details.dataset.optionKey === optionKey);
-      if (option) {
-        option.open = true;
-        target = option;
-      }
-    }
-  } else if (sectionName === "Review") {
-    target = root.querySelector(".editor-review");
-  } else {
-    target = stepSection(root, sectionName);
-  }
-
-  target?.scrollIntoView?.({behavior:"smooth", block:"start"});
-  target?.focus?.({preventScroll:true});
-};
-
-panel.enhanceEditorUx = function() {
-  if (!this.editor || !this.shadowRoot) return;
-  const root = this.shadowRoot;
-  const body = root.querySelector(".editor-body");
-  if (!body) return;
-
-  const dialog = root.querySelector(".dialog");
-  const description = dialog?.querySelector("header p");
-  if (dialog && description) {
-    description.id = "editor-description";
-    dialog.setAttribute("aria-describedby", "editor-description");
-  }
-
-  const stepTitles = ["Basics", "When", "Only if", "Send", "Then"];
-  for (const title of stepTitles) {
-    const section = [...body.querySelectorAll(":scope > section")]
-      .find(candidate => candidate.querySelector("h3")?.textContent?.trim() === title);
-    if (!section) continue;
-    const displayTitle = title === "Then" ? "After notifying" : title;
-    section.querySelector("h3").textContent = displayTitle;
-    section.classList.add("editor-step");
-    section.dataset.editorSection = displayTitle;
-    section.tabIndex = -1;
-  }
-
-  const review = body.querySelector(":scope > .editor-summary");
-  const more = body.querySelector(":scope > .more-options");
-  if (review) {
-    review.classList.add("editor-review");
-    review.dataset.editorSection = "Review";
-    review.tabIndex = -1;
-    const heading = review.querySelector("h3");
-    if (heading) {
-      heading.textContent = "Review";
-      if (!review.querySelector(".section-help")) {
-        heading.insertAdjacentElement(
-          "afterend",
-          makeTextElement(
-            "p",
-            "section-help",
-            "Check the plain-English summary before creating the notification.",
-          ),
-        );
-      }
-    }
-    if (more) more.before(review);
-  }
-
-  const errors = editorErrorItems(this.errors);
-  const advancedErrors = errors.filter(item => item.optionKey);
-  if (advancedErrors.length) {
-    this.advancedOpen = true;
-    this._editorUxOpenOptions ??= new Set();
-    for (const item of advancedErrors) this._editorUxOpenOptions.add(item.optionKey);
-  }
-
-  for (const item of errors) {
-    if (item.section === "More options" || item.section === "Review") continue;
-    stepSection(root, item.section)?.classList.add("has-error");
-  }
-
-  if (errors.length) {
-    const summary = document.createElement("section");
-    summary.className = "editor-error-summary";
-    summary.setAttribute("role", "alert");
-    summary.tabIndex = -1;
-    summary.append(makeTextElement("strong", "", "Check these settings before saving"));
-    const list = document.createElement("ul");
-    for (const item of errors) {
-      const row = document.createElement("li");
-      const button = document.createElement("button");
-      button.type = "button";
-      button.dataset.errorSection = item.section;
-      if (item.optionKey) button.dataset.errorOption = item.optionKey;
-      button.textContent = `${item.section}: ${item.message}`;
-      row.append(button);
-      list.append(row);
-    }
-    summary.append(list);
-    body.prepend(summary);
-  }
-
-  if (more) {
-    more.tabIndex = -1;
     const active = activeAdvancedOptions(this.editor.definition);
-    const activeKeys = new Set(active.map(item => item.key));
+    const activeKeys = new Set(active.map((item) => item.key));
     const summary = more.querySelector(":scope > summary");
     if (summary) {
-      summary.replaceChildren(makeTextElement("span", "more-options-title", "More options"));
+      summary.replaceChildren(
+        makeTextElement("span", "more-options-title", "More options"),
+      );
       if (active.length) {
         const badges = document.createElement("span");
         badges.className = "more-options-active";
@@ -314,104 +179,303 @@ panel.enhanceEditorUx = function() {
           badges.append(makeTextElement("span", "option-chip", item.label));
         }
         if (active.length > 3) {
-          badges.append(makeTextElement("span", "option-chip", `+${active.length - 3}`));
+          badges.append(
+            makeTextElement("span", "option-chip", `+${active.length - 3}`),
+          );
         }
         summary.append(badges);
       } else {
-        summary.append(makeTextElement("span", "more-options-hint", "Optional"));
+        summary.append(
+          makeTextElement("span", "more-options-hint", "Optional"),
+        );
       }
     }
 
-    const groups = [...more.querySelectorAll(".advanced > .advanced-group")];
-    for (const group of groups) {
-      const heading = group.querySelector(":scope > h4");
-      if (!heading) continue;
-      const optionKey = ADVANCED_HEADINGS.get(heading.textContent.trim());
-      if (!optionKey) continue;
+    for (const details of more.querySelectorAll(
+      ".advanced-disclosure[data-option-key]",
+    )) {
+      const state = details.querySelector(".advanced-option-state");
+      if (!state) continue;
+      const configured = activeKeys.has(details.dataset.optionKey);
+      state.textContent = configured ? "Configured" : "Optional";
+      state.classList.toggle("configured", configured);
+    }
+  }
 
-      const details = document.createElement("details");
-      details.className = `${group.className} advanced-disclosure`;
-      details.dataset.optionKey = optionKey;
-      details.tabIndex = -1;
-      details.open = Boolean(this._editorUxOpenOptions?.has(optionKey));
+  updatePreview() {
+    super.updatePreview();
+    this.syncEditorUxDynamicState();
+  }
 
-      const optionSummary = document.createElement("summary");
-      optionSummary.append(makeTextElement("span", "", heading.textContent.trim()));
-      optionSummary.append(makeTextElement(
-        "span",
-        `advanced-option-state${activeKeys.has(optionKey) ? " configured" : ""}`,
-        activeKeys.has(optionKey) ? "Configured" : "Optional",
-      ));
+  openEditor(record) {
+    this._editorUxOpenOptions = new Set();
+    return super.openEditor(record);
+  }
 
-      const optionBody = document.createElement("div");
-      optionBody.className = "advanced-disclosure-body";
-      for (const child of [...group.children]) {
-        if (child !== heading) optionBody.append(child);
+  focusEditorSection(sectionName, optionKey) {
+    const root = this.shadowRoot;
+    if (!root) return;
+
+    let target;
+    if (sectionName === "More options") {
+      const more = root.querySelector(".more-options");
+      if (!more) return;
+      more.open = true;
+      this.advancedOpen = true;
+      target = more;
+      if (optionKey) {
+        this._editorUxOpenOptions ??= new Set();
+        this._editorUxOpenOptions.add(optionKey);
+        const option = [...more.querySelectorAll(".advanced-disclosure")].find(
+          (details) => details.dataset.optionKey === optionKey,
+        );
+        if (option) {
+          option.open = true;
+          target = option;
+        }
       }
-      details.append(optionSummary, optionBody);
-      group.replaceWith(details);
+    } else if (sectionName === "Review") {
+      target = root.querySelector(".editor-review");
+    } else {
+      target = stepSection(root, sectionName);
     }
+
+    target?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    target?.focus?.({ preventScroll: true });
   }
 
-  const external = root.querySelector(".external-trigger-box");
-  if (external) {
-    const hasExternal = Boolean(external.querySelector(".external-trigger-row"));
-    external.classList.toggle("has-external", hasExternal);
-    const add = external.querySelector("#add-external-trigger");
-    if (add) {
-      add.textContent = hasExternal
-        ? "+ Add another external trigger"
-        : "+ Add external / integration trigger";
+  enhanceEditorUx() {
+    if (!this.editor || !this.shadowRoot) return;
+    const root = this.shadowRoot;
+    const body = root.querySelector(".editor-body");
+    if (!body) return;
+
+    const dialog = root.querySelector(".dialog");
+    const description = dialog?.querySelector("header p");
+    if (dialog && description) {
+      description.id = "editor-description";
+      dialog.setAttribute("aria-describedby", "editor-description");
     }
-  }
-};
 
-panel.hydrateEditor = function() {
-  originalHydrateEditor.call(this);
-  this.enhanceEditorUx();
-};
+    const stepTitles = ["Basics", "When", "Only if", "Send", "Then"];
+    for (const title of stepTitles) {
+      const section = [...body.querySelectorAll(":scope > section")].find(
+        (candidate) =>
+          candidate.dataset.editorKey ===
+          {
+            Basics: "basics",
+            When: "when",
+            "Only if": "conditions",
+            Send: "send",
+            Then: "behaviour",
+          }[title],
+      );
+      if (!section) continue;
+      const displayTitle = title === "Then" ? "After notifying" : title;
+      section.querySelector("h3").textContent = displayTitle;
+      section.classList.add("editor-step");
+      section.dataset.editorSection = displayTitle;
+      section.tabIndex = -1;
+    }
 
-panel.bind = function() {
-  originalBind.call(this);
-  if (!this.editor || !this.shadowRoot) return;
-  const root = this.shadowRoot;
+    const review = body.querySelector(":scope > .editor-summary");
+    const more = body.querySelector(":scope > .more-options");
+    if (review) {
+      review.classList.add("editor-review");
+      review.dataset.editorSection = "Review";
+      review.tabIndex = -1;
+      const heading = review.querySelector("h3");
+      if (heading) {
+        heading.textContent = "Review";
+        if (!review.querySelector(".section-help")) {
+          heading.insertAdjacentElement(
+            "afterend",
+            makeTextElement(
+              "p",
+              "section-help",
+              "Check the plain-English summary before creating the notification.",
+            ),
+          );
+        }
+      }
+      if (more) more.before(review);
+    }
 
-  root.querySelectorAll("[data-error-section]").forEach(button => {
-    button.addEventListener("click", () => {
-      this.focusEditorSection(button.dataset.errorSection, button.dataset.errorOption);
-    });
-  });
-
-  root.querySelectorAll(".advanced-disclosure[data-option-key]").forEach(details => {
-    details.addEventListener("toggle", () => {
+    const errors = editorErrorItems(this.errors);
+    const advancedErrors = errors.filter((item) => item.optionKey);
+    if (advancedErrors.length) {
+      this.advancedOpen = true;
       this._editorUxOpenOptions ??= new Set();
-      if (details.open) this._editorUxOpenOptions.add(details.dataset.optionKey);
-      else this._editorUxOpenOptions.delete(details.dataset.optionKey);
-    });
-  });
-
-  root.querySelector(".dialog")?.addEventListener("keydown", event => {
-    if (event.key !== "Escape" || event.defaultPrevented) return;
-    const path = event.composedPath?.() || [];
-    if (path.some(node => ["ha-selector", "ha-entity-picker", "ha-dialog"].includes(node?.localName))) {
-      return;
+      for (const item of advancedErrors)
+        this._editorUxOpenOptions.add(item.optionKey);
     }
-    event.preventDefault();
-    this.closeEditor();
-  });
-};
 
-panel.save = async function() {
-  const result = await originalSave.call(this);
-  if (this.editor && Object.keys(this.errors || {}).length) {
-    requestAnimationFrame(() => {
-      const summary = this.shadowRoot?.querySelector(".editor-error-summary");
-      summary?.scrollIntoView?.({behavior:"smooth", block:"start"});
-      summary?.focus?.({preventScroll:true});
+    for (const item of errors) {
+      if (item.section === "More options" || item.section === "Review")
+        continue;
+      stepSection(root, item.section)?.classList.add("has-error");
+    }
+
+    if (errors.length) {
+      const summary = document.createElement("section");
+      summary.className = "editor-error-summary";
+      summary.setAttribute("role", "alert");
+      summary.tabIndex = -1;
+      summary.append(
+        makeTextElement("strong", "", "Check these settings before saving"),
+      );
+      const list = document.createElement("ul");
+      for (const item of errors) {
+        const row = document.createElement("li");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.errorSection = item.section;
+        if (item.optionKey) button.dataset.errorOption = item.optionKey;
+        button.textContent = `${item.section}: ${item.message}`;
+        row.append(button);
+        list.append(row);
+      }
+      summary.append(list);
+      body.prepend(summary);
+    }
+
+    if (more) {
+      more.tabIndex = -1;
+      const active = activeAdvancedOptions(this.editor.definition);
+      const activeKeys = new Set(active.map((item) => item.key));
+      const summary = more.querySelector(":scope > summary");
+      if (summary) {
+        summary.replaceChildren(
+          makeTextElement("span", "more-options-title", "More options"),
+        );
+        if (active.length) {
+          const badges = document.createElement("span");
+          badges.className = "more-options-active";
+          for (const item of active.slice(0, 3)) {
+            badges.append(makeTextElement("span", "option-chip", item.label));
+          }
+          if (active.length > 3) {
+            badges.append(
+              makeTextElement("span", "option-chip", `+${active.length - 3}`),
+            );
+          }
+          summary.append(badges);
+        } else {
+          summary.append(
+            makeTextElement("span", "more-options-hint", "Optional"),
+          );
+        }
+      }
+
+      const groups = [...more.querySelectorAll(".advanced > .advanced-group")];
+      for (const group of groups) {
+        const heading = group.querySelector(":scope > h4");
+        if (!heading) continue;
+        const optionKey = group.dataset.optionKey;
+        if (!optionKey) continue;
+
+        const details = document.createElement("details");
+        details.className = `${group.className} advanced-disclosure`;
+        details.dataset.optionKey = optionKey;
+        details.tabIndex = -1;
+        details.open = Boolean(this._editorUxOpenOptions?.has(optionKey));
+
+        const optionSummary = document.createElement("summary");
+        optionSummary.append(
+          makeTextElement("span", "", heading.textContent.trim()),
+        );
+        optionSummary.append(
+          makeTextElement(
+            "span",
+            `advanced-option-state${activeKeys.has(optionKey) ? " configured" : ""}`,
+            activeKeys.has(optionKey) ? "Configured" : "Optional",
+          ),
+        );
+
+        const optionBody = document.createElement("div");
+        optionBody.className = "advanced-disclosure-body";
+        for (const child of [...group.children]) {
+          if (child !== heading) optionBody.append(child);
+        }
+        details.append(optionSummary, optionBody);
+        group.replaceWith(details);
+      }
+    }
+
+    const external = root.querySelector(".external-trigger-box");
+    if (external) {
+      const hasExternal = Boolean(
+        external.querySelector(".external-trigger-row"),
+      );
+      external.classList.toggle("has-external", hasExternal);
+      const add = external.querySelector("#add-external-trigger");
+      if (add) {
+        add.textContent = hasExternal
+          ? "+ Add another external trigger"
+          : "+ Add external / integration trigger";
+      }
+    }
+  }
+
+  hydrateEditor() {
+    super.hydrateEditor();
+    this.enhanceEditorUx();
+  }
+
+  bind() {
+    super.bind();
+    if (!this.editor || !this.shadowRoot) return;
+    const root = this.shadowRoot;
+
+    root.querySelectorAll("[data-error-section]").forEach((button) => {
+      button.addEventListener("click", () => {
+        this.focusEditorSection(
+          button.dataset.errorSection,
+          button.dataset.errorOption,
+        );
+      });
+    });
+
+    root
+      .querySelectorAll(".advanced-disclosure[data-option-key]")
+      .forEach((details) => {
+        details.addEventListener("toggle", () => {
+          this._editorUxOpenOptions ??= new Set();
+          if (details.open)
+            this._editorUxOpenOptions.add(details.dataset.optionKey);
+          else this._editorUxOpenOptions.delete(details.dataset.optionKey);
+        });
+      });
+
+    root.querySelector(".dialog")?.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      const path = event.composedPath?.() || [];
+      if (
+        path.some((node) =>
+          ["ha-selector", "ha-entity-picker", "ha-dialog"].includes(
+            node?.localName,
+          ),
+        )
+      ) {
+        return;
+      }
+      event.preventDefault();
+      this.closeEditor();
     });
   }
-  return result;
-};
+
+  async save() {
+    const result = await super.save();
+    if (this.editor && Object.keys(this.errors || {}).length) {
+      requestAnimationFrame(() => {
+        const summary = this.shadowRoot?.querySelector(".editor-error-summary");
+        summary?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+        summary?.focus?.({ preventScroll: true });
+      });
+    }
+    return result;
+  }
+}
 
 export {
   ConditionalNotificationsPanel,

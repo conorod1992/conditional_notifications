@@ -1,14 +1,4 @@
-import { ConditionalNotificationsPanel } from "./conditional-notifications-panel-entry.js";
-
-const panel = ConditionalNotificationsPanel.prototype;
-const originalHydrateEditor = panel.hydrateEditor;
-const originalOpenEditor = panel.openEditor;
-const originalBind = panel.bind;
-const originalValidate = panel.validate;
-const originalSave = panel.save;
-const originalTriggerSummary = panel.triggerSummary;
-const originalConditionSummary = panel.conditionSummary;
-const originalStyles = panel.styles;
+import { ConditionalNotificationsPanel as BasePanel } from "./conditional-notifications-panel-entry.js";
 
 const WEEKDAY_SHORT = {
   monday: "mon",
@@ -20,24 +10,28 @@ const WEEKDAY_SHORT = {
   sunday: "sun",
 };
 
-const clone = value => value === undefined ? undefined : structuredClone(value);
-const isNamedTrigger = trigger => trigger?.type === "named" && !trigger?.trigger && !trigger?.platform;
-const isNativeTrigger = trigger => Boolean(trigger && (trigger.trigger || trigger.platform || trigger.triggers));
-const isNativeCondition = condition => Boolean(condition && condition.condition);
+const clone = (value) =>
+  value === undefined ? undefined : structuredClone(value);
+const isNamedTrigger = (trigger) =>
+  trigger?.type === "named" && !trigger?.trigger && !trigger?.platform;
+const isNativeTrigger = (trigger) =>
+  Boolean(trigger && (trigger.trigger || trigger.platform || trigger.triggers));
+const isNativeCondition = (condition) =>
+  Boolean(condition && condition.condition);
 
 function toNativeTrigger(trigger) {
   if (!trigger || typeof trigger !== "object") return trigger;
   if (isNativeTrigger(trigger)) return clone(trigger);
   if (trigger.type === "named") return null;
   if (trigger.type === "state") {
-    const value = {trigger:"state", entity_id:trigger.entity_id};
+    const value = { trigger: "state", entity_id: trigger.entity_id };
     for (const key of ["from", "to", "attribute", "for"]) {
       if (trigger[key] !== undefined) value[key] = clone(trigger[key]);
     }
     return value;
   }
   if (trigger.type === "numeric_state") {
-    const value = {trigger:"numeric_state", entity_id:trigger.entity_id};
+    const value = { trigger: "numeric_state", entity_id: trigger.entity_id };
     for (const key of ["above", "below", "attribute", "for"]) {
       if (trigger[key] !== undefined) value[key] = clone(trigger[key]);
     }
@@ -45,15 +39,16 @@ function toNativeTrigger(trigger) {
   }
   if (trigger.type === "zone") {
     return {
-      trigger:"zone",
-      entity_id:trigger.entity_id,
-      zone:trigger.zone_entity_id,
-      event:trigger.event,
+      trigger: "zone",
+      entity_id: trigger.entity_id,
+      zone: trigger.zone_entity_id,
+      event: trigger.event,
     };
   }
   if (trigger.type === "event") {
-    const value = {trigger:"event", event_type:trigger.event_type};
-    if (trigger.event_data !== undefined) value.event_data = clone(trigger.event_data);
+    const value = { trigger: "event", event_type: trigger.event_type };
+    if (trigger.event_data !== undefined)
+      value.event_data = clone(trigger.event_data);
     return value;
   }
   return null;
@@ -64,17 +59,19 @@ function toNativeCondition(condition) {
   if (isNativeCondition(condition)) return clone(condition);
   if (condition.type === "state") {
     const state = {
-      condition:"state",
-      entity_id:condition.entity_id,
-      state:clone(condition.state),
+      condition: "state",
+      entity_id: condition.entity_id,
+      state: clone(condition.state),
     };
-    if (condition.attribute !== undefined) state.attribute = condition.attribute;
-    return condition.negate
-      ? {condition:"not", conditions:[state]}
-      : state;
+    if (condition.attribute !== undefined)
+      state.attribute = condition.attribute;
+    return condition.negate ? { condition: "not", conditions: [state] } : state;
   }
   if (condition.type === "numeric_state") {
-    const value = {condition:"numeric_state", entity_id:condition.entity_id};
+    const value = {
+      condition: "numeric_state",
+      entity_id: condition.entity_id,
+    };
     for (const key of ["above", "below", "attribute"]) {
       if (condition[key] !== undefined) value[key] = clone(condition[key]);
     }
@@ -82,17 +79,19 @@ function toNativeCondition(condition) {
   }
   if (condition.type === "zone") {
     return {
-      condition:"zone",
-      entity_id:condition.entity_id,
-      zone:condition.zone_entity_id,
+      condition: "zone",
+      entity_id: condition.entity_id,
+      zone: condition.zone_entity_id,
     };
   }
   if (condition.type === "time") {
-    const value = {condition:"time"};
+    const value = { condition: "time" };
     if (condition.after) value.after = condition.after;
     if (condition.before) value.before = condition.before;
     if (condition.weekdays?.length) {
-      value.weekday = condition.weekdays.map(day => WEEKDAY_SHORT[day] || day);
+      value.weekday = condition.weekdays.map(
+        (day) => WEEKDAY_SHORT[day] || day,
+      );
     }
     return value;
   }
@@ -100,7 +99,10 @@ function toNativeCondition(condition) {
 }
 
 function nativeTriggers(definition) {
-  return (definition.triggers || []).filter(trigger => !isNamedTrigger(trigger)).map(toNativeTrigger).filter(Boolean);
+  return (definition.triggers || [])
+    .filter((trigger) => !isNamedTrigger(trigger))
+    .map(toNativeTrigger)
+    .filter(Boolean);
 }
 
 function nativeConditions(definition) {
@@ -122,13 +124,13 @@ function mergeNativeTriggers(existing, replacement) {
 }
 
 function sectionByHeading(root, heading) {
-  return [...(root?.querySelectorAll(".editor-body > section") || [])]
-    .find(section => section.querySelector("h3")?.textContent?.trim() === heading);
+  const keys = { When: "when", "Only if": "conditions" };
+  return root?.querySelector(`[data-editor-key="${keys[heading]}"]`);
 }
 
 function advancedGroupByHeading(root, heading) {
-  return [...(root?.querySelectorAll(".advanced-group") || [])]
-    .find(group => group.querySelector("h4")?.textContent?.trim() === heading);
+  const keys = { Resolution: "resolution" };
+  return root?.querySelector(`[data-option-key="${keys[heading]}"]`);
 }
 
 function makeSelector(instance, selector, value, id) {
@@ -147,12 +149,20 @@ function makeSelector(instance, selector, value, id) {
 
 function findNativeAutomationList(root) {
   if (!root) return undefined;
-  if (["ha-automation-trigger", "ha-automation-condition"].includes(root.localName)) {
+  if (
+    ["ha-automation-trigger", "ha-automation-condition"].includes(
+      root.localName,
+    )
+  ) {
     return root;
   }
   if (!root.querySelectorAll) return undefined;
   for (const element of root.querySelectorAll("*")) {
-    if (["ha-automation-trigger", "ha-automation-condition"].includes(element.localName)) {
+    if (
+      ["ha-automation-trigger", "ha-automation-condition"].includes(
+        element.localName,
+      )
+    ) {
       return element;
     }
     if (element.shadowRoot) {
@@ -181,7 +191,8 @@ function syncNativeAutomationSelectorValue(selector, value) {
   // share the same array object. Mutating that array first makes a newly added
   // condition look synchronized even though Lit was never asked to rerender it.
   const list = findNativeAutomationList(selector.shadowRoot);
-  const property = list?.localName === "ha-automation-condition" ? "conditions" : "triggers";
+  const property =
+    list?.localName === "ha-automation-condition" ? "conditions" : "triggers";
   const listNeedsUpdate = Boolean(
     list && !sameAutomationValue(list[property], next),
   );
@@ -220,7 +231,10 @@ function ensureNativeAutomationTranslations(instance) {
   try {
     loadResult = loader.call(instance.hass, "config");
   } catch (error) {
-    console.warn("Unable to load Home Assistant automation translations", error);
+    console.warn(
+      "Unable to load Home Assistant automation translations",
+      error,
+    );
     return Promise.resolve();
   }
 
@@ -229,8 +243,11 @@ function ensureNativeAutomationTranslations(instance) {
     .then(() => {
       instance._nativeAutomationTranslationsLoaded = true;
     })
-    .catch(error => {
-      console.warn("Unable to load Home Assistant automation translations", error);
+    .catch((error) => {
+      console.warn(
+        "Unable to load Home Assistant automation translations",
+        error,
+      );
     })
     .finally(() => {
       if (instance._nativeAutomationTranslationsPromise === promise) {
@@ -264,11 +281,10 @@ const NATIVE_AUTOMATION_NEGATIVE_MARGIN_HOSTS = new Set([
 function isNativeAutomationTypeEditor(element) {
   const owner = element.getRootNode?.()?.host?.localName;
   return (
-    owner === "ha-automation-trigger-editor"
-    && element.localName?.startsWith("ha-automation-trigger-")
-  ) || (
-    owner === "ha-automation-condition-editor"
-    && element.localName?.startsWith("ha-automation-condition-")
+    (owner === "ha-automation-trigger-editor" &&
+      element.localName?.startsWith("ha-automation-trigger-")) ||
+    (owner === "ha-automation-condition-editor" &&
+      element.localName?.startsWith("ha-automation-condition-"))
   );
 }
 
@@ -324,11 +340,11 @@ function entityLabel(instance, entityId) {
 function simpleCurrentStateCandidate(trigger) {
   const native = toNativeTrigger(trigger);
   return Boolean(
-    native
-    && (native.trigger === "state" || native.platform === "state")
-    && typeof native.entity_id === "string"
-    && native.to !== undefined
-    && !Array.isArray(native.to)
+    native &&
+    (native.trigger === "state" || native.platform === "state") &&
+    typeof native.entity_id === "string" &&
+    native.to !== undefined &&
+    !Array.isArray(native.to),
   );
 }
 
@@ -352,8 +368,11 @@ function createExternalTriggerRow(instance, trigger, originalIndex) {
   return row;
 }
 
-panel.styles = function() {
-  return originalStyles.call(this).replace("</style>", `
+class ConditionalNotificationsPanel extends BasePanel {
+  styles() {
+    return super.styles().replace(
+      "</style>",
+      `
     .native-automation-editor{margin:12px 0 4px;padding-inline:8px;min-width:0;max-width:100%;width:100%;box-sizing:border-box;contain:inline-size;overflow-x:auto;overscroll-behavior-inline:contain}
     .native-automation-selector{display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;contain:inline-size}
     .native-editor-help{display:block;color:var(--secondary-text-color);font-size:13px;line-height:1.45;margin:4px 0 12px}
@@ -363,319 +382,451 @@ panel.styles = function() {
     .external-trigger-row label{margin:8px 0}
     .native-resolution-error{color:var(--error-color,#db4437);font-size:12px;margin:6px 0}
     @media(max-width:700px){.external-trigger-row{grid-template-columns:1fr auto}}
-  </style>`);
-};
-
-panel.triggerSummary = function(trigger) {
-  if (!isNativeTrigger(trigger)) return originalTriggerSummary.call(this, trigger);
-  if (trigger.triggers) return "a Home Assistant trigger group fires";
-  const kind = trigger.trigger || trigger.platform || "trigger";
-  const entity = Array.isArray(trigger.entity_id) ? trigger.entity_id.join(", ") : trigger.entity_id;
-  if (kind === "state") {
-    return `${entityLabel(this, entity)} changes${trigger.to !== undefined ? ` to ${Array.isArray(trigger.to) ? trigger.to.join(" or ") : trigger.to}` : ""}`;
-  }
-  if (kind === "numeric_state") return `${entityLabel(this, entity)} crosses its configured numeric threshold`;
-  if (kind === "zone") return `${entityLabel(this, entity)} ${trigger.event || "changes zone at"} ${entityLabel(this, trigger.zone)}`;
-  if (kind === "event") return `event ${Array.isArray(trigger.event_type) ? trigger.event_type.join(", ") : trigger.event_type || "(configured event)"} fires`;
-  if (kind === "time") return `the configured time ${typeof trigger.at === "string" ? trigger.at : "arrives"}`;
-  if (kind === "calendar") return `${entityLabel(this, trigger.entity_id)} calendar event ${trigger.event || "changes"}`;
-  if (kind === "sun") return `${trigger.event || "sun"} trigger fires`;
-  return `Home Assistant ${String(kind).replaceAll("_", " ")} trigger fires`;
-};
-
-panel.conditionSummary = function(condition) {
-  if (!isNativeCondition(condition)) return originalConditionSummary.call(this, condition);
-  const kind = condition.condition;
-  if (kind === "state") return `${entityLabel(this, condition.entity_id)} is ${Array.isArray(condition.state) ? condition.state.join(" or ") : condition.state}`;
-  if (kind === "numeric_state") return `${entityLabel(this, condition.entity_id)} is within its configured numeric bounds`;
-  if (kind === "zone") return `${entityLabel(this, condition.entity_id)} is in ${entityLabel(this, condition.zone)}`;
-  if (kind === "time") return "the configured Home Assistant time condition passes";
-  if (["and", "or", "not"].includes(kind)) return `${kind.toUpperCase()} condition group passes`;
-  return `Home Assistant ${String(kind).replaceAll("_", " ")} condition passes`;
-};
-
-panel.hydrateNativeAutomationEditors = function() {
-  if (!this.editor || !this.shadowRoot || !customElements.get?.("ha-selector")) return;
-  const definition = this.editor.definition;
-
-  const when = sectionByHeading(this.shadowRoot, "When");
-  if (when && !when.querySelector("#native-ha-triggers")) {
-    const heading = when.querySelector("h3");
-    const help = when.querySelector(".section-help");
-    [...when.children].forEach(child => {
-      if (child !== heading && child !== help) child.remove();
-    });
-
-    const editor = document.createElement("div");
-    editor.className = "native-automation-editor";
-    editor.append(makeSelector(this, {trigger:{}}, nativeTriggers(definition), "native-ha-triggers"));
-    const note = document.createElement("small");
-    note.className = "native-editor-help";
-    note.textContent = "Uses Home Assistant's full trigger editor. Trigger groups count as one Conditional Notifications signal for correlation.";
-    editor.append(note);
-    when.append(editor);
-
-    const external = document.createElement("div");
-    external.className = "external-trigger-box";
-    const title = document.createElement("strong");
-    title.textContent = "External / integration triggers";
-    const description = document.createElement("small");
-    description.className = "native-editor-help";
-    description.textContent = "Optional named signals that another integration, automation, service, or LLM tool can fire directly.";
-    external.append(title, description);
-    (definition.triggers || []).forEach((trigger, index) => {
-      if (isNamedTrigger(trigger)) external.append(createExternalTriggerRow(this, trigger, index));
-    });
-    const add = document.createElement("button");
-    add.type = "button";
-    add.className = "secondary";
-    add.id = "add-external-trigger";
-    add.textContent = "+ Add external trigger";
-    external.append(add);
-    when.append(external);
+  </style>`,
+    );
   }
 
-  const onlyIf = sectionByHeading(this.shadowRoot, "Only if");
-  if (onlyIf && !onlyIf.querySelector("#native-ha-conditions")) {
-    const heading = onlyIf.querySelector("h3");
-    const help = onlyIf.querySelector(".section-help");
-    [...onlyIf.children].forEach(child => {
-      if (child !== heading && child !== help) child.remove();
-    });
-    const editor = document.createElement("div");
-    editor.className = "native-automation-editor";
-    editor.append(makeSelector(
-      this,
-      {condition:{optionsInSidebar:false}},
-      nativeConditions(definition),
-      "native-ha-conditions",
-    ));
-    const note = document.createElement("small");
-    note.className = "native-editor-help";
-    note.textContent = "Uses Home Assistant's full condition editor, including AND, OR, NOT, template, device, sun, and integration conditions.";
-    editor.append(note);
-    onlyIf.append(editor);
+  triggerSummary(trigger) {
+    if (!isNativeTrigger(trigger)) return super.triggerSummary(trigger);
+    if (trigger.triggers) return "a Home Assistant trigger group fires";
+    const kind = trigger.trigger || trigger.platform || "trigger";
+    const entity = Array.isArray(trigger.entity_id)
+      ? trigger.entity_id.join(", ")
+      : trigger.entity_id;
+    if (kind === "state") {
+      return `${entityLabel(this, entity)} changes${trigger.to !== undefined ? ` to ${Array.isArray(trigger.to) ? trigger.to.join(" or ") : trigger.to}` : ""}`;
+    }
+    if (kind === "numeric_state")
+      return `${entityLabel(this, entity)} crosses its configured numeric threshold`;
+    if (kind === "zone")
+      return `${entityLabel(this, entity)} ${trigger.event || "changes zone at"} ${entityLabel(this, trigger.zone)}`;
+    if (kind === "event")
+      return `event ${Array.isArray(trigger.event_type) ? trigger.event_type.join(", ") : trigger.event_type || "(configured event)"} fires`;
+    if (kind === "time")
+      return `the configured time ${typeof trigger.at === "string" ? trigger.at : "arrives"}`;
+    if (kind === "calendar")
+      return `${entityLabel(this, trigger.entity_id)} calendar event ${trigger.event || "changes"}`;
+    if (kind === "sun") return `${trigger.event || "sun"} trigger fires`;
+    return `Home Assistant ${String(kind).replaceAll("_", " ")} trigger fires`;
   }
 
-  const resolution = advancedGroupByHeading(this.shadowRoot, "Resolution");
-  if (resolution && !resolution.querySelector("#native-resolve-toggle")) {
-    resolution.replaceChildren();
-    const heading = document.createElement("h4");
-    heading.textContent = "Resolution";
-    const toggleLabel = document.createElement("label");
-    toggleLabel.className = "check";
-    const toggle = document.createElement("input");
-    toggle.type = "checkbox";
-    toggle.id = "native-resolve-toggle";
-    toggle.checked = Boolean(definition.resolve_when);
-    toggleLabel.append(toggle, document.createTextNode(" Auto-resolve when another trigger fires"));
-    resolution.append(heading, toggleLabel);
+  conditionSummary(condition) {
+    if (!isNativeCondition(condition)) return super.conditionSummary(condition);
+    const kind = condition.condition;
+    if (kind === "state")
+      return `${entityLabel(this, condition.entity_id)} is ${Array.isArray(condition.state) ? condition.state.join(" or ") : condition.state}`;
+    if (kind === "numeric_state")
+      return `${entityLabel(this, condition.entity_id)} is within its configured numeric bounds`;
+    if (kind === "zone")
+      return `${entityLabel(this, condition.entity_id)} is in ${entityLabel(this, condition.zone)}`;
+    if (kind === "time")
+      return "the configured Home Assistant time condition passes";
+    if (["and", "or", "not"].includes(kind))
+      return `${kind.toUpperCase()} condition group passes`;
+    return `Home Assistant ${String(kind).replaceAll("_", " ")} condition passes`;
+  }
 
-    if (definition.resolve_when) {
-      const named = isNamedTrigger(definition.resolve_when);
-      const modeLabel = document.createElement("label");
-      modeLabel.append(document.createTextNode("Resolution source"));
-      const mode = document.createElement("select");
-      mode.id = "native-resolution-mode";
-      for (const [value, text] of [["ha", "Home Assistant trigger"], ["external", "External / integration trigger"]]) {
-        const option = document.createElement("option");
-        option.value = value;
-        option.textContent = text;
-        option.selected = named ? value === "external" : value === "ha";
-        mode.append(option);
-      }
-      modeLabel.append(mode);
-      resolution.append(modeLabel);
+  hydrateNativeAutomationEditors() {
+    if (
+      !this.editor ||
+      !this.shadowRoot ||
+      !customElements.get?.("ha-selector")
+    )
+      return;
+    const definition = this.editor.definition;
 
-      if (named) {
-        const label = document.createElement("label");
-        label.append(document.createTextNode("External trigger name"));
-        const input = document.createElement("input");
-        input.id = "native-resolution-external-name";
-        input.value = definition.resolve_when.trigger_id || "";
-        label.append(input);
-        resolution.append(label);
-      } else {
-        const native = toNativeTrigger(definition.resolve_when);
-        const selector = makeSelector(
+    const when = sectionByHeading(this.shadowRoot, "When");
+    if (when && !when.querySelector("#native-ha-triggers")) {
+      const heading = when.querySelector("h3");
+      const help = when.querySelector(".section-help");
+      [...when.children].forEach((child) => {
+        if (child !== heading && child !== help) child.remove();
+      });
+
+      const editor = document.createElement("div");
+      editor.className = "native-automation-editor";
+      editor.append(
+        makeSelector(
           this,
-          {trigger:{}},
-          this._nativeResolutionDraft || (native ? [native] : []),
-          "native-ha-resolution",
-        );
-        resolution.append(selector);
-        const note = document.createElement("small");
-        note.className = "native-editor-help";
-        note.textContent = "Choose exactly one trigger. State-like triggers are re-checked after delivery; one-shot triggers are retained if they fire while delivery is still in progress.";
-        resolution.append(note);
-        if (this._nativeResolutionError) {
-          const error = document.createElement("div");
-          error.className = "native-resolution-error";
-          error.textContent = this._nativeResolutionError;
-          resolution.append(error);
+          { trigger: {} },
+          nativeTriggers(definition),
+          "native-ha-triggers",
+        ),
+      );
+      const note = document.createElement("small");
+      note.className = "native-editor-help";
+      note.textContent =
+        "Uses Home Assistant's full trigger editor. Trigger groups count as one Conditional Notifications signal for correlation.";
+      editor.append(note);
+      when.append(editor);
+
+      const external = document.createElement("div");
+      external.className = "external-trigger-box";
+      const title = document.createElement("strong");
+      title.textContent = "External / integration triggers";
+      const description = document.createElement("small");
+      description.className = "native-editor-help";
+      description.textContent =
+        "Optional named signals that another integration, automation, service, or LLM tool can fire directly.";
+      external.append(title, description);
+      (definition.triggers || []).forEach((trigger, index) => {
+        if (isNamedTrigger(trigger))
+          external.append(createExternalTriggerRow(this, trigger, index));
+      });
+      const add = document.createElement("button");
+      add.type = "button";
+      add.className = "secondary";
+      add.id = "add-external-trigger";
+      add.textContent = "+ Add external trigger";
+      external.append(add);
+      when.append(external);
+    }
+
+    const onlyIf = sectionByHeading(this.shadowRoot, "Only if");
+    if (onlyIf && !onlyIf.querySelector("#native-ha-conditions")) {
+      const heading = onlyIf.querySelector("h3");
+      const help = onlyIf.querySelector(".section-help");
+      [...onlyIf.children].forEach((child) => {
+        if (child !== heading && child !== help) child.remove();
+      });
+      const editor = document.createElement("div");
+      editor.className = "native-automation-editor";
+      editor.append(
+        makeSelector(
+          this,
+          { condition: { optionsInSidebar: false } },
+          nativeConditions(definition),
+          "native-ha-conditions",
+        ),
+      );
+      const note = document.createElement("small");
+      note.className = "native-editor-help";
+      note.textContent =
+        "Uses Home Assistant's full condition editor, including AND, OR, NOT, template, device, sun, and integration conditions.";
+      editor.append(note);
+      onlyIf.append(editor);
+    }
+
+    const resolution = advancedGroupByHeading(this.shadowRoot, "Resolution");
+    if (resolution && !resolution.querySelector("#native-resolve-toggle")) {
+      resolution.replaceChildren();
+      const heading = document.createElement("h4");
+      heading.textContent = "Resolution";
+      const toggleLabel = document.createElement("label");
+      toggleLabel.className = "check";
+      const toggle = document.createElement("input");
+      toggle.type = "checkbox";
+      toggle.id = "native-resolve-toggle";
+      toggle.checked = Boolean(definition.resolve_when);
+      toggleLabel.append(
+        toggle,
+        document.createTextNode(" Auto-resolve when another trigger fires"),
+      );
+      resolution.append(heading, toggleLabel);
+
+      if (definition.resolve_when) {
+        const named = isNamedTrigger(definition.resolve_when);
+        const modeLabel = document.createElement("label");
+        modeLabel.append(document.createTextNode("Resolution source"));
+        const mode = document.createElement("select");
+        mode.id = "native-resolution-mode";
+        for (const [value, text] of [
+          ["ha", "Home Assistant trigger"],
+          ["external", "External / integration trigger"],
+        ]) {
+          const option = document.createElement("option");
+          option.value = value;
+          option.textContent = text;
+          option.selected = named ? value === "external" : value === "ha";
+          mode.append(option);
         }
+        modeLabel.append(mode);
+        resolution.append(modeLabel);
+
+        if (named) {
+          const label = document.createElement("label");
+          label.append(document.createTextNode("External trigger name"));
+          const input = document.createElement("input");
+          input.id = "native-resolution-external-name";
+          input.value = definition.resolve_when.trigger_id || "";
+          label.append(input);
+          resolution.append(label);
+        } else {
+          const native = toNativeTrigger(definition.resolve_when);
+          const selector = makeSelector(
+            this,
+            { trigger: {} },
+            this._nativeResolutionDraft || (native ? [native] : []),
+            "native-ha-resolution",
+          );
+          resolution.append(selector);
+          const note = document.createElement("small");
+          note.className = "native-editor-help";
+          note.textContent =
+            "Choose exactly one trigger. State-like triggers are re-checked after delivery; one-shot triggers are retained if they fire while delivery is still in progress.";
+          resolution.append(note);
+          if (this._nativeResolutionError) {
+            const error = document.createElement("div");
+            error.className = "native-resolution-error";
+            error.textContent = this._nativeResolutionError;
+            resolution.append(error);
+          }
+        }
+
+        const clear = document.createElement("label");
+        clear.className = "check";
+        const clearInput = document.createElement("input");
+        clearInput.type = "checkbox";
+        clearInput.id = "native-clear-on-resolve";
+        clearInput.checked = definition.clear_on_resolve !== false;
+        clear.append(
+          clearInput,
+          document.createTextNode(
+            " Clear the tagged persistent notification when resolved",
+          ),
+        );
+        resolution.append(clear);
       }
+    }
 
-      const clear = document.createElement("label");
-      clear.className = "check";
-      const clearInput = document.createElement("input");
-      clearInput.type = "checkbox";
-      clearInput.id = "native-clear-on-resolve";
-      clearInput.checked = definition.clear_on_resolve !== false;
-      clear.append(clearInput, document.createTextNode(" Clear the tagged persistent notification when resolved"));
-      resolution.append(clear);
+    this.shadowRoot
+      .querySelectorAll(".native-automation-selector")
+      .forEach(normalizeNativeAutomationLayout);
+
+    const matchCurrent = this.shadowRoot.querySelector(
+      '[data-path="match_current_state"]',
+    );
+    if (matchCurrent) {
+      const supported = (definition.triggers || []).some(
+        simpleCurrentStateCandidate,
+      );
+      matchCurrent.disabled = !supported;
+      const label = matchCurrent.closest("label");
+      if (label) label.style.display = supported ? "" : "none";
     }
   }
 
-  this.shadowRoot.querySelectorAll(".native-automation-selector")
-    .forEach(normalizeNativeAutomationLayout);
-
-  const matchCurrent = this.shadowRoot.querySelector('[data-path="match_current_state"]');
-  if (matchCurrent) {
-    const supported = (definition.triggers || []).some(simpleCurrentStateCandidate);
-    matchCurrent.disabled = !supported;
-    const label = matchCurrent.closest("label");
-    if (label) label.style.display = supported ? "" : "none";
+  openEditor(record) {
+    const open = () => super.openEditor(record);
+    if (!this.hass?.loadFragmentTranslation) return open();
+    return ensureNativeAutomationTranslations(this).then(open);
   }
-};
 
-panel.openEditor = function(record) {
-  const open = () => originalOpenEditor.call(this, record);
-  if (!this.hass?.loadFragmentTranslation) return open();
-  return ensureNativeAutomationTranslations(this).then(open);
-};
+  hydrateEditor() {
+    super.hydrateEditor();
+    this.hydrateNativeAutomationEditors();
+  }
 
-panel.hydrateEditor = function() {
-  originalHydrateEditor.call(this);
-  this.hydrateNativeAutomationEditors();
-};
+  bind() {
+    super.bind();
+    if (
+      !this.editor ||
+      !this.shadowRoot ||
+      !customElements.get?.("ha-selector")
+    )
+      return;
+    const definition = this.editor.definition;
 
-panel.bind = function() {
-  originalBind.call(this);
-  if (!this.editor || !this.shadowRoot || !customElements.get?.("ha-selector")) return;
-  const definition = this.editor.definition;
+    this.shadowRoot
+      .querySelector("#native-ha-triggers")
+      ?.addEventListener("value-changed", (event) => {
+        const value = event.detail?.value ?? event.currentTarget.value ?? [];
+        const replacement = Array.isArray(value) ? value : [value];
+        definition.triggers = mergeNativeTriggers(
+          definition.triggers,
+          replacement,
+        );
+        syncNativeAutomationSelectorValue(event.currentTarget, replacement);
+        normalizeNativeAutomationLayout(event.currentTarget);
+        if (!(definition.triggers || []).some(simpleCurrentStateCandidate)) {
+          delete definition.match_current_state;
+        }
+        this.markDirty();
+        this.syncNativeDependentControls();
+        this.updatePreview();
+      });
 
-  this.shadowRoot.querySelector("#native-ha-triggers")?.addEventListener("value-changed", event => {
-    const value = event.detail?.value ?? event.currentTarget.value ?? [];
-    const replacement = Array.isArray(value) ? value : [value];
-    definition.triggers = mergeNativeTriggers(definition.triggers, replacement);
-    syncNativeAutomationSelectorValue(event.currentTarget, replacement);
-    normalizeNativeAutomationLayout(event.currentTarget);
-    if (!(definition.triggers || []).some(simpleCurrentStateCandidate)) {
-      delete definition.match_current_state;
+    this.shadowRoot
+      .querySelector("#native-ha-conditions")
+      ?.addEventListener("value-changed", (event) => {
+        const value = event.detail?.value ?? event.currentTarget.value ?? [];
+        definition.conditions = clone(Array.isArray(value) ? value : [value]);
+        syncNativeAutomationSelectorValue(
+          event.currentTarget,
+          definition.conditions,
+        );
+        normalizeNativeAutomationLayout(event.currentTarget);
+        this.markDirty();
+        this.updatePreview();
+      });
+
+    this.shadowRoot
+      .querySelectorAll("[data-external-trigger-index]")
+      .forEach((input) => {
+        const trigger =
+          definition.triggers[Number(input.dataset.externalTriggerIndex)];
+        input.addEventListener("input", (event) => {
+          if (!definition.triggers.includes(trigger)) return;
+          trigger.trigger_id = event.currentTarget.value.trim();
+          this.markDirty();
+          this.updatePreview();
+        });
+      });
+    this.shadowRoot
+      .querySelectorAll("[data-remove-external-trigger]")
+      .forEach((button) => {
+        const trigger =
+          definition.triggers[Number(button.dataset.removeExternalTrigger)];
+        button.addEventListener("click", () => {
+          const index = definition.triggers.indexOf(trigger);
+          if (index < 0) return;
+          definition.triggers.splice(index, 1);
+          this.markDirty();
+          this.render();
+        });
+      });
+    this.shadowRoot
+      .querySelector("#add-external-trigger")
+      ?.addEventListener("click", () => {
+        definition.triggers.push({ type: "named", trigger_id: "" });
+        this.markDirty();
+        this.render();
+      });
+
+    this.shadowRoot
+      .querySelector("#native-resolve-toggle")
+      ?.addEventListener("change", (event) => {
+        if (event.currentTarget.checked) {
+          definition.resolve_when = {
+            trigger: "state",
+            entity_id: "",
+            to: "off",
+          };
+          this._nativeResolutionDraft = undefined;
+          this._nativeResolutionError = undefined;
+        } else {
+          delete definition.resolve_when;
+          this._nativeResolutionDraft = undefined;
+          this._nativeResolutionError = undefined;
+        }
+        this.markDirty();
+        this.render();
+      });
+
+    this.shadowRoot
+      .querySelector("#native-resolution-mode")
+      ?.addEventListener("change", (event) => {
+        if (event.currentTarget.value === "external") {
+          definition.resolve_when = { type: "named", trigger_id: "" };
+        } else {
+          definition.resolve_when = {
+            trigger: "state",
+            entity_id: "",
+            to: "off",
+          };
+        }
+        this._nativeResolutionDraft = undefined;
+        this._nativeResolutionError = undefined;
+        this.markDirty();
+        this.render();
+      });
+
+    this.shadowRoot
+      .querySelector("#native-resolution-external-name")
+      ?.addEventListener("input", (event) => {
+        definition.resolve_when.trigger_id = event.currentTarget.value.trim();
+        this.markDirty();
+        this.updatePreview();
+      });
+
+    this.shadowRoot
+      .querySelector("#native-ha-resolution")
+      ?.addEventListener("value-changed", (event) => {
+        const value = event.detail?.value ?? event.currentTarget.value ?? [];
+        const triggers = clone(Array.isArray(value) ? value : [value]);
+        this._nativeResolutionDraft = triggers;
+        syncNativeAutomationSelectorValue(event.currentTarget, triggers);
+        normalizeNativeAutomationLayout(event.currentTarget);
+        if (triggers.length === 1) {
+          definition.resolve_when = triggers[0];
+          this._nativeResolutionError = undefined;
+        } else {
+          this._nativeResolutionError =
+            "Resolution needs exactly one Home Assistant trigger.";
+        }
+        this.markDirty();
+        this.updatePreview();
+      });
+
+    this.shadowRoot
+      .querySelector("#native-clear-on-resolve")
+      ?.addEventListener("change", (event) => {
+        definition.clear_on_resolve = event.currentTarget.checked;
+        this.markDirty();
+        this.updatePreview();
+      });
+  }
+
+  syncNativeDependentControls() {
+    const definition = this.editor?.definition;
+    if (!definition) return;
+    const option = this.shadowRoot.querySelector(
+      '#trigger-match-mode option[value="all_within"]',
+    );
+    if (option) option.disabled = definition.triggers.length < 2;
+    const help = option?.closest("label")?.querySelector("small");
+    if (help)
+      help.textContent =
+        definition.triggers.length < 2
+          ? "Add a second trigger to enable correlated matching."
+          : "Use this when several separate signals together make an event meaningful. Trigger order does not matter.";
+    const matchCurrent = this.shadowRoot.querySelector(
+      '[data-path="match_current_state"]',
+    );
+    if (matchCurrent) {
+      const supported = definition.triggers.some(simpleCurrentStateCandidate);
+      matchCurrent.disabled = !supported;
+      const label = matchCurrent.closest("label");
+      if (label) label.style.display = supported ? "" : "none";
     }
-    this.markDirty();
-    this.updatePreview();
-  });
+  }
 
-  this.shadowRoot.querySelector("#native-ha-conditions")?.addEventListener("value-changed", event => {
-    const value = event.detail?.value ?? event.currentTarget.value ?? [];
-    definition.conditions = clone(Array.isArray(value) ? value : [value]);
-    syncNativeAutomationSelectorValue(event.currentTarget, definition.conditions);
-    normalizeNativeAutomationLayout(event.currentTarget);
-    this.markDirty();
-    this.updatePreview();
-  });
-
-  this.shadowRoot.querySelectorAll("[data-external-trigger-index]").forEach(input => {
-    input.addEventListener("input", event => {
-      const index = Number(event.currentTarget.dataset.externalTriggerIndex);
-      definition.triggers[index].trigger_id = event.currentTarget.value.trim();
-      this.markDirty();
-      this.updatePreview();
+  validate(definition) {
+    const errors = super.validate(definition);
+    if (!definition.triggers?.length)
+      errors.triggers = "Add at least one trigger.";
+    definition.triggers?.forEach((trigger, index) => {
+      if (isNamedTrigger(trigger) && !trigger.trigger_id?.trim()) {
+        errors[`trigger${index}`] = "Give each external trigger a name.";
+      }
     });
-  });
-  this.shadowRoot.querySelectorAll("[data-remove-external-trigger]").forEach(button => {
-    button.addEventListener("click", event => {
-      definition.triggers.splice(Number(event.currentTarget.dataset.removeExternalTrigger), 1);
-      this.markDirty();
-      this.render();
-    });
-  });
-  this.shadowRoot.querySelector("#add-external-trigger")?.addEventListener("click", () => {
-    definition.triggers.push({type:"named", trigger_id:""});
-    this.markDirty();
-    this.render();
-  });
-
-  this.shadowRoot.querySelector("#native-resolve-toggle")?.addEventListener("change", event => {
-    if (event.currentTarget.checked) {
-      definition.resolve_when = {trigger:"state", entity_id:"", to:"off"};
-      this._nativeResolutionDraft = undefined;
-      this._nativeResolutionError = undefined;
-    } else {
-      delete definition.resolve_when;
-      this._nativeResolutionDraft = undefined;
-      this._nativeResolutionError = undefined;
+    if (
+      isNamedTrigger(definition.resolve_when) &&
+      !definition.resolve_when.trigger_id?.trim()
+    ) {
+      errors.resolution = "Give the external resolution trigger a name.";
     }
-    this.markDirty();
-    this.render();
-  });
-
-  this.shadowRoot.querySelector("#native-resolution-mode")?.addEventListener("change", event => {
-    if (event.currentTarget.value === "external") {
-      definition.resolve_when = {type:"named", trigger_id:""};
-    } else {
-      definition.resolve_when = {trigger:"state", entity_id:"", to:"off"};
+    if (
+      this._nativeResolutionDraft &&
+      this._nativeResolutionDraft.length !== 1
+    ) {
+      errors.resolution =
+        "Resolution needs exactly one Home Assistant trigger.";
     }
-    this._nativeResolutionDraft = undefined;
-    this._nativeResolutionError = undefined;
-    this.markDirty();
-    this.render();
-  });
-
-  this.shadowRoot.querySelector("#native-resolution-external-name")?.addEventListener("input", event => {
-    definition.resolve_when.trigger_id = event.currentTarget.value.trim();
-    this.markDirty();
-    this.updatePreview();
-  });
-
-  this.shadowRoot.querySelector("#native-ha-resolution")?.addEventListener("value-changed", event => {
-    const value = event.detail?.value ?? event.currentTarget.value ?? [];
-    const triggers = clone(Array.isArray(value) ? value : [value]);
-    this._nativeResolutionDraft = triggers;
-    syncNativeAutomationSelectorValue(event.currentTarget, triggers);
-    normalizeNativeAutomationLayout(event.currentTarget);
-    if (triggers.length === 1) {
-      definition.resolve_when = triggers[0];
-      this._nativeResolutionError = undefined;
-    } else {
-      this._nativeResolutionError = "Resolution needs exactly one Home Assistant trigger.";
-    }
-    this.markDirty();
-    this.updatePreview();
-  });
-
-  this.shadowRoot.querySelector("#native-clear-on-resolve")?.addEventListener("change", event => {
-    definition.clear_on_resolve = event.currentTarget.checked;
-    this.markDirty();
-    this.updatePreview();
-  });
-};
-
-panel.validate = function(definition) {
-  const errors = originalValidate.call(this, definition);
-  if (!definition.triggers?.length) errors.triggers = "Add at least one trigger.";
-  definition.triggers?.forEach((trigger, index) => {
-    if (isNamedTrigger(trigger) && !trigger.trigger_id?.trim()) {
-      errors[`trigger${index}`] = "Give each external trigger a name.";
-    }
-  });
-  if (isNamedTrigger(definition.resolve_when) && !definition.resolve_when.trigger_id?.trim()) {
-    errors.resolution = "Give the external resolution trigger a name.";
+    return errors;
   }
-  if (this._nativeResolutionDraft && this._nativeResolutionDraft.length !== 1) {
-    errors.resolution = "Resolution needs exactly one Home Assistant trigger.";
-  }
-  return errors;
-};
 
-panel.save = async function() {
-  if (!(this.editor?.definition?.triggers || []).some(simpleCurrentStateCandidate)) {
-    delete this.editor?.definition?.match_current_state;
+  async save() {
+    if (
+      !(this.editor?.definition?.triggers || []).some(
+        simpleCurrentStateCandidate,
+      )
+    ) {
+      delete this.editor?.definition?.match_current_state;
+    }
+    return super.save();
   }
-  return originalSave.call(this);
-};
+}
 
 export {
   ConditionalNotificationsPanel,
